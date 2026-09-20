@@ -10,12 +10,32 @@ from solarflow_ble.probe import (
 
 
 def test_probe_config_normalizes_address() -> None:
-    config = ProbeConfig("proxy.local", None, "aa:bb", None, None, 1, 1, False, False)
+    config = ProbeConfig(
+        proxy="proxy.local",
+        noise_psk=None,
+        target_address="aa:bb",
+        target_identifier=None,
+        output=None,
+        scan_seconds=1,
+        capture_seconds=1,
+        send_handshake=False,
+        list_advertisements=False,
+    )
     assert config.target_address == "AA:BB"
 
 
 def test_probe_address_filter() -> None:
-    config = ProbeConfig("proxy.local", None, "AA:BB", None, None, 1, 1, False, False)
+    config = ProbeConfig(
+        proxy="proxy.local",
+        noise_psk=None,
+        target_address="AA:BB",
+        target_identifier=None,
+        output=None,
+        scan_seconds=1,
+        capture_seconds=1,
+        send_handshake=False,
+        list_advertisements=False,
+    )
     from bleak.backends.device import BLEDevice
 
     assert _advertisement_matches(config, BLEDevice("AA:BB", "SolarFlow", {}))
@@ -48,6 +68,18 @@ def test_capture_writer_redacts_identity(tmp_path: Path) -> None:
     assert "DEVICE_ID" in content
     assert "PRODUCT_KEY" in content
     assert "PACK_SERIAL" in content
+
+
+def test_capture_writer_preserves_non_json_payload(tmp_path: Path) -> None:
+    path = tmp_path / "capture.jsonl"
+    writer = CaptureWriter(path)
+    writer.write("rx", b"\x00\xffraw")
+    writer.close()
+
+    content = path.read_text()
+    assert '"hex":"00ff726177"' in content
+    assert '"json":null' in content
+    assert '"text":"\\u0000\\ufffdraw"' in content
 
 
 def test_redact_capture_handles_nested_values() -> None:

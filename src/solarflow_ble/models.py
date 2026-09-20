@@ -2,6 +2,37 @@
 
 from dataclasses import dataclass, replace
 from enum import IntEnum, StrEnum
+from typing import Any, cast
+
+_REPORT_FIELDS = {
+    "packInputPower": "pack_input_power",
+    "outputPackPower": "output_pack_power",
+    "outputHomePower": "output_home_power",
+    "remainOutTime": "remain_out_time",
+    "dataReady": "data_ready",
+    "acMode": "ac_mode",
+    "inputLimit": "input_limit",
+    "outputLimit": "output_limit",
+    "packState": "pack_state",
+    "acStatus": "ac_status",
+    "electricLevel": "electric_level",
+    "gridState": "grid_state",
+    "faultLevel": "fault_level",
+    "smartMode": "smart_mode",
+    "chargeMaxLimit": "charge_max_limit",
+    "socLimit": "soc_limit",
+    "gridInputPower": "grid_input_power",
+    "solarInputPower": "solar_input_power",
+    "solarPower1": "solar_power_1",
+    "solarPower2": "solar_power_2",
+    "solarPower3": "solar_power_3",
+    "solarPower4": "solar_power_4",
+    "solarPower5": "solar_power_5",
+    "solarPower6": "solar_power_6",
+    "gridOffPower": "grid_off_power",
+    "socStatus": "soc_status",
+    "hyperTmp": "hyper_temperature",
+}
 
 
 class AcMode(IntEnum):
@@ -89,39 +120,13 @@ class SolarFlowState:
     raw: dict[str, object] | None = None
 
     def update(self, values: dict[str, object]) -> SolarFlowState:
-        fields = {"packInputPower":"pack_input_power", "outputPackPower":"output_pack_power", "outputHomePower":"output_home_power", "remainOutTime":"remain_out_time", "dataReady":"data_ready", "acMode":"ac_mode", "inputLimit":"input_limit", "outputLimit":"output_limit", "packState":"pack_state", "acStatus":"ac_status", "electricLevel":"electric_level", "gridState":"grid_state", "faultLevel":"fault_level", "smartMode":"smart_mode", "chargeMaxLimit":"charge_max_limit", "socLimit":"soc_limit", "gridInputPower":"grid_input_power", "solarInputPower":"solar_input_power", "solarPower1":"solar_power_1", "solarPower2":"solar_power_2", "solarPower3":"solar_power_3", "solarPower4":"solar_power_4", "solarPower5":"solar_power_5", "solarPower6":"solar_power_6", "gridOffPower":"grid_off_power", "socStatus":"soc_status", "hyperTmp":"hyper_temperature"}
-        changes: dict[str, int] = {fields[key]: value for key, value in values.items() if key in fields and isinstance(value, int)}
+        changes = {
+            _REPORT_FIELDS[key]: value
+            for key, value in values.items()
+            if key in _REPORT_FIELDS and isinstance(value, int)
+        }
         current = replace(self, raw={**(self.raw or {}), **values})
-        current = replace(
-            current,
-            pack_input_power=changes.get("pack_input_power", current.pack_input_power),
-            output_pack_power=changes.get("output_pack_power", current.output_pack_power),
-            ac_mode=changes.get("ac_mode", current.ac_mode),
-            input_limit=changes.get("input_limit", current.input_limit),
-            output_limit=changes.get("output_limit", current.output_limit),
-            pack_state=changes.get("pack_state", current.pack_state),
-            ac_status=changes.get("ac_status", current.ac_status),
-            electric_level=changes.get("electric_level", current.electric_level),
-            grid_state=changes.get("grid_state", current.grid_state),
-            fault_level=changes.get("fault_level", current.fault_level),
-            smart_mode=changes.get("smart_mode", current.smart_mode),
-            charge_max_limit=changes.get("charge_max_limit", current.charge_max_limit),
-            soc_limit=changes.get("soc_limit", current.soc_limit),
-            output_home_power=changes.get("output_home_power", current.output_home_power),
-            remain_out_time=changes.get("remain_out_time", current.remain_out_time),
-            data_ready=changes.get("data_ready", current.data_ready),
-            grid_input_power=changes.get("grid_input_power", current.grid_input_power),
-            solar_input_power=changes.get("solar_input_power", current.solar_input_power),
-            solar_power_1=changes.get("solar_power_1", current.solar_power_1),
-            solar_power_2=changes.get("solar_power_2", current.solar_power_2),
-            solar_power_3=changes.get("solar_power_3", current.solar_power_3),
-            solar_power_4=changes.get("solar_power_4", current.solar_power_4),
-            solar_power_5=changes.get("solar_power_5", current.solar_power_5),
-            solar_power_6=changes.get("solar_power_6", current.solar_power_6),
-            grid_off_power=changes.get("grid_off_power", current.grid_off_power),
-            soc_status=changes.get("soc_status", current.soc_status),
-            hyper_temperature=changes.get("hyper_temperature", current.hyper_temperature),
-        )
+        current = replace(current, **cast(Any, changes))
         if current.pack_input_power is not None and current.output_pack_power is not None:
             current = replace(current, battery_power=current.output_pack_power - current.pack_input_power)
         return current

@@ -42,13 +42,14 @@ class BleTransport(Protocol):
 class SolarFlowClient:
     """Communicate with one SolarFlow controller."""
 
-    def __init__(self, transport: BleTransport, *, response_timeout: float = DEFAULT_RESPONSE_TIMEOUT, keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS, ble_spp_delay: float = 0.5, initial_read_delay: float = 0.3, update_callback: UpdateCallback | None = None) -> None:
+    def __init__(self, transport: BleTransport, *, response_timeout: float = DEFAULT_RESPONSE_TIMEOUT, keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS, ble_spp_delay: float = 0.5, initial_read_delay: float = 0.3, update_callback: UpdateCallback | None = None, allow_control: bool = False) -> None:
         self.transport = transport
         self.response_timeout = response_timeout
         self.keepalive_seconds = keepalive_seconds
         self.ble_spp_delay = ble_spp_delay
         self.initial_read_delay = initial_read_delay
         self.update_callback = update_callback
+        self.allow_control = allow_control
         self.state = SolarFlowState()
         self.status = ConnectionStatus.DISCONNECTED
         self._lock = asyncio.Lock()
@@ -69,20 +70,24 @@ class SolarFlowClient:
         return self.status is ConnectionStatus.READY
 
     async def connect(self) -> None:
-        await self.transport.connect()
-        self.status = ConnectionStatus.CONNECTED
-        await self.transport.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._notification)
-        await self._write({"messageId": "1009", "method": "BLESPP_OK"})
-        await asyncio.sleep(self.ble_spp_delay)
-        timestamp = int(time.time() * 1000)
-        await self._write({"messageId": str(timestamp), "method": "getInfo", "timestamp": timestamp})
-        await self._wait_for_method("getInfo-rsp")
-        self.status = ConnectionStatus.PROTOCOL_READY
-        await asyncio.sleep(self.initial_read_delay)
-        await self._write({"messageId": "11", "timestamp": int(time.time() * 1000), "properties": ["getAll"], "method": "read"})
-        await self._wait_for_initial_reports()
-        self._refresh_status()
-        self._keepalive_task = asyncio.create_task(self._keepalive())
+        try:
+            await self.transport.connect()
+            self.status = ConnectionStatus.CONNECTED
+            await self.transport.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._notification)
+            await self._write({"messageId": "1009", "method": "BLESPP_OK"})
+            await asyncio.sleep(self.ble_spp_delay)
+            timestamp = int(time.time() * 1000)
+            await self._write({"messageId": str(timestamp), "method": "getInfo", "timestamp": timestamp})
+            await self._wait_for_method("getInfo-rsp")
+            self.status = ConnectionStatus.PROTOCOL_READY
+            await asyncio.sleep(self.initial_read_delay)
+            await self._write({"messageId": "11", "timestamp": int(time.time() * 1000), "properties": ["getAll"], "method": "read"})
+            await self._wait_for_initial_reports()
+            self._refresh_status()
+            self._keepalive_task = asyncio.create_task(self._keepalive())
+        except BaseException:
+            await self.disconnect()
+            raise
 
     async def disconnect(self) -> None:
         if self._keepalive_task:
@@ -127,7 +132,10 @@ class SolarFlowClient:
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise SolarFlowTimeoutError(f"Timed out waiting for {method}")
-            message = await asyncio.wait_for(self._reports.get(), remaining)
+            try:
+                message = await asyncio.wait_for(self._reports.get(), remaining)
+            except TimeoutError as err:
+                raise SolarFlowTimeoutError(f"Timed out waiting for {method}") from err
             if message.get("method") == method:
                 return message
 
@@ -137,7 +145,10 @@ class SolarFlowClient:
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise SolarFlowTimeoutError("Timed out waiting for initial report state")
-            message = await asyncio.wait_for(self._reports.get(), remaining)
+            try:
+                message = await asyncio.wait_for(self._reports.get(), remaining)
+            except TimeoutError as err:
+                raise SolarFlowTimeoutError("Timed out waiting for initial report state") from err
             if message.get("method") == "error":
                 raise SolarFlowDeviceError(f"SolarFlow reported error: {message.get('data')}")
 
@@ -147,6 +158,8 @@ class SolarFlowClient:
         self.status = ConnectionStatus.READY if self.state.smart_mode == 1 else ConnectionStatus.PROTOCOL_READY
 
     async def _request_write(self, property_name: str, value: int) -> None:
+        if not self.allow_control:
+            raise SolarFlowNotReadyError("SolarFlow controls are disabled for this session")
         if not self.ready:
             raise SolarFlowNotReadyError("SolarFlow controls are not ready")
         async with self._lock:
@@ -157,7 +170,12 @@ class SolarFlowClient:
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     raise SolarFlowTimeoutError(f"Timed out waiting for {property_name} acknowledgement")
-                response = await asyncio.wait_for(self._write_results.get(), remaining)
+                try:
+                    response = await asyncio.wait_for(self._write_results.get(), remaining)
+                except TimeoutError as err:
+                    raise SolarFlowTimeoutError(
+                        f"Timed out waiting for {property_name} acknowledgement"
+                    ) from err
                 properties = response.get("properties")
                 if isinstance(properties, dict) and "writeRsp" in properties:
                     if properties["writeRsp"] != 0:

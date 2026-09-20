@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
 
 from solarflow_ble import SolarFlowClient, SolarFlowState, parse_advertisement
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
-from solarflow_ble.exceptions import SolarFlowValidationError
+from solarflow_ble.exceptions import (
+    SolarFlowDeviceError,
+    SolarFlowNotReadyError,
+    SolarFlowTimeoutError,
+    SolarFlowValidationError,
+)
 
 
 def test_parse_advertisement() -> None:
@@ -39,7 +45,7 @@ def test_report_fields_merge() -> None:
 class FakeTransport:
     def __init__(self) -> None:
         self.writes: list[bytes] = []
-        self.callback = None
+        self.callback: Callable[[str, bytes], Awaitable[None]] | None = None
 
     async def connect(self) -> None: pass
     async def disconnect(self) -> None: pass
@@ -76,6 +82,60 @@ class ReportTransport(FakeTransport):
                 b'{"messageId":"11","properties":{"smartMode":1}}',
             )
 
+
+class FailingTransport(FakeTransport):
+    def __init__(self, failure: str) -> None:
+        super().__init__()
+        self.failure = failure
+        self.stop_notify_calls = 0
+        self.disconnect_calls = 0
+
+    async def disconnect(self) -> None:
+        self.disconnect_calls += 1
+
+    async def stop_notify(self, characteristic) -> None:
+        self.stop_notify_calls += 1
+
+    async def write_gatt_char(self, characteristic, data, response=False) -> None:
+        self.writes.append(data)
+        if self.failure == "getInfo":
+            return
+        if b'"method":"getInfo"' in data:
+            assert self.callback is not None
+            await self.callback(NOTIFY_CHARACTERISTIC_UUID, b'{"method":"getInfo-rsp"}')
+        if self.failure == "initial" and b'"method":"read"' in data:
+            assert self.callback is not None
+            await self.callback(
+                NOTIFY_CHARACTERISTIC_UUID,
+                b'{"method":"error","data":[{"code":40}]}',
+            )
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_cleans_up_after_get_info_timeout() -> None:
+    transport = FailingTransport("getInfo")
+    client = SolarFlowClient(transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0)
+
+    with pytest.raises(SolarFlowTimeoutError):
+        await client.connect()
+
+    assert not client.connected
+    assert transport.stop_notify_calls == 1
+    assert transport.disconnect_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_cleans_up_after_initial_report_error() -> None:
+    transport = FailingTransport("initial")
+    client = SolarFlowClient(transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0)
+
+    with pytest.raises(SolarFlowDeviceError):
+        await client.connect()
+
+    assert not client.connected
+    assert transport.stop_notify_calls == 1
+    assert transport.disconnect_calls == 1
+
 @pytest.mark.asyncio
 async def test_connect_handshake() -> None:
     transport = FakeTransport()
@@ -109,3 +169,19 @@ def test_invalid_limits_rejected() -> None:
     client = SolarFlowClient(FakeTransport())
     with pytest.raises(SolarFlowValidationError):
         client._validate_limit(2401)
+
+
+@pytest.mark.asyncio
+async def test_controls_are_disabled_by_default() -> None:
+    client = SolarFlowClient(FakeTransport())
+    with pytest.raises(SolarFlowNotReadyError, match="disabled"):
+        await client.set_input_limit(100)
+
+
+def test_report_mapping_updates_fields() -> None:
+    state = SolarFlowState().update(
+        {"inputLimit": 100, "outputLimit": 200, "solarPower6": 30}
+    )
+    assert state.input_limit == 100
+    assert state.output_limit == 200
+    assert state.solar_power_6 == 30
