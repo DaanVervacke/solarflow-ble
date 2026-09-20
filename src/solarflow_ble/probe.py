@@ -10,6 +10,7 @@ import os
 import time
 from collections.abc import Sequence
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -27,30 +28,23 @@ from .protocol import encode_json, parse_advertisement
 _LOGGER = logging.getLogger(__name__)
 
 
+@dataclass(slots=True)
 class ProbeConfig:
     """Local configuration for a probe run."""
 
-    def __init__(
-        self,
-        proxy: str,
-        noise_psk: str | None,
-        target_address: str | None,
-        target_identifier: str | None,
-        output: Path | None,
-        scan_seconds: float,
-        capture_seconds: float,
-        send_handshake: bool,
-        list_advertisements: bool,
-    ) -> None:
-        self.proxy = proxy
-        self.noise_psk = noise_psk
-        self.target_address = target_address.upper() if target_address else None
-        self.target_identifier = target_identifier
-        self.output = output
-        self.scan_seconds = scan_seconds
-        self.capture_seconds = capture_seconds
-        self.send_handshake = send_handshake
-        self.list_advertisements = list_advertisements
+    proxy: str
+    noise_psk: str | None
+    target_address: str | None
+    target_identifier: str | None
+    output: Path | None
+    scan_seconds: float
+    capture_seconds: float
+    send_handshake: bool
+    list_advertisements: bool
+
+    def __post_init__(self) -> None:
+        if self.target_address:
+            self.target_address = self.target_address.upper()
 
 
 class CaptureWriter:
@@ -69,8 +63,7 @@ class CaptureWriter:
             text = payload.decode("utf-8")
         except json.JSONDecodeError:
             decoded = None
-            payload = b""
-            text = "<non-JSON payload redacted>"
+            text = payload.decode("utf-8", errors="replace")
         extra = _redact_capture(extra)
         record = {
             "time": time.time(),
@@ -157,11 +150,11 @@ async def _find_device(config: ProbeConfig, bluetooth_manager: habluetooth.Bluet
             if device is not None:
                 _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", device.name)
                 return device
-        for device in bluetooth_manager.async_discovered_devices(True):
-            if not _advertisement_matches(config, device):
-                continue
-            _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", device.name)
-            return device
+        if config.target_address:
+            for device in bluetooth_manager.async_discovered_devices(True):
+                if _advertisement_matches(config, device):
+                    _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", device.name)
+                    return device
         for scanner in bluetooth_manager.async_current_scanners():
             discovered = cast(dict[str, tuple[BLEDevice, Any]], scanner.discovered_devices_and_advertisement_data)
             for device, advertisement in discovered.values():
@@ -173,8 +166,8 @@ async def _find_device(config: ProbeConfig, bluetooth_manager: habluetooth.Bluet
                     rssi=advertisement.rssi,
                     connectable=True,
                 )
-                if config.target_identifier and (
-                    parsed is None or parsed.identifier != config.target_identifier
+                if parsed is None or (
+                    config.target_identifier and parsed.identifier != config.target_identifier
                 ):
                     continue
                 _LOGGER.info("Found target via proxy scanner")
