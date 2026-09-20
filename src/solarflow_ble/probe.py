@@ -59,7 +59,9 @@ class CaptureWriter:
         text = payload.decode("utf-8", errors="replace")
         try:
             decoded = _redact_capture(json.loads(text))
-            payload = json.dumps(decoded, separators=(",", ":"), ensure_ascii=False).encode()
+            payload = json.dumps(
+                decoded, separators=(",", ":"), ensure_ascii=False
+            ).encode()
             text = payload.decode("utf-8")
         except json.JSONDecodeError:
             decoded = None
@@ -122,24 +124,24 @@ def _redact_capture(value: Any) -> Any:
     return value
 
 
-def _env(primary: str, legacy: str) -> str | None:
-    """Read the canonical environment variable, then its legacy alias."""
-    return os.getenv(primary) or os.getenv(legacy)
-
-
 def _set_active_scanning(bluetooth_manager: habluetooth.BluetoothManager) -> None:
     """Request active scanning from every connectable proxy scanner."""
     for scanner in bluetooth_manager.async_current_scanners():
         if getattr(scanner, "connectable", False):
             scanner.set_requested_mode(BluetoothScanningMode.ACTIVE)
-            _LOGGER.info("Requested active scanning from %s", getattr(scanner, "source", "scanner"))
+            _LOGGER.info(
+                "Requested active scanning from %s",
+                getattr(scanner, "source", "scanner"),
+            )
 
 
 def _advertisement_matches(config: ProbeConfig, device: BLEDevice) -> bool:
     return not config.target_address or device.address.upper() == config.target_address
 
 
-async def _find_device(config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager) -> BLEDevice:
+async def _find_device(
+    config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager
+) -> BLEDevice:
     deadline = asyncio.get_running_loop().time() + config.scan_seconds
     await asyncio.sleep(5)
     while True:
@@ -148,15 +150,22 @@ async def _find_device(config: ProbeConfig, bluetooth_manager: habluetooth.Bluet
                 config.target_address, connectable=True
             )
             if device is not None:
-                _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", device.name)
+                _LOGGER.info(
+                    "Found target address=%s name=%s", "DEVICE_ADDRESS", device.name
+                )
                 return device
         if config.target_address:
             for device in bluetooth_manager.async_discovered_devices(True):
                 if _advertisement_matches(config, device):
-                    _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", device.name)
+                    _LOGGER.info(
+                        "Found target address=%s name=%s", "DEVICE_ADDRESS", device.name
+                    )
                     return device
         for scanner in bluetooth_manager.async_current_scanners():
-            discovered = cast(dict[str, tuple[BLEDevice, Any]], scanner.discovered_devices_and_advertisement_data)
+            discovered = cast(
+                dict[str, tuple[BLEDevice, Any]],
+                scanner.discovered_devices_and_advertisement_data,
+            )
             for device, advertisement in discovered.values():
                 if not _advertisement_matches(config, device):
                     continue
@@ -167,7 +176,8 @@ async def _find_device(config: ProbeConfig, bluetooth_manager: habluetooth.Bluet
                     connectable=True,
                 )
                 if parsed is None or (
-                    config.target_identifier and parsed.identifier != config.target_identifier
+                    config.target_identifier
+                    and parsed.identifier != config.target_identifier
                 ):
                     continue
                 _LOGGER.info("Found target via proxy scanner")
@@ -177,14 +187,19 @@ async def _find_device(config: ProbeConfig, bluetooth_manager: habluetooth.Bluet
         await asyncio.sleep(0.5)
 
 
-async def _list_advertisements(config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager) -> None:
+async def _list_advertisements(
+    config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager
+) -> None:
     """Print every advertisement seen by the proxy during the scan window."""
     deadline = asyncio.get_running_loop().time() + config.scan_seconds
     seen: set[str] = set()
     await asyncio.sleep(5)
     while asyncio.get_running_loop().time() < deadline:
         for scanner in bluetooth_manager.async_current_scanners():
-            discovered = cast(dict[str, tuple[BLEDevice, Any]], scanner.discovered_devices_and_advertisement_data)
+            discovered = cast(
+                dict[str, tuple[BLEDevice, Any]],
+                scanner.discovered_devices_and_advertisement_data,
+            )
             for device, advertisement in discovered.values():
                 if device.address in seen:
                     continue
@@ -304,10 +319,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--proxy",
-        default=_env("SOLARFLOW_PROXY", "SOLARFLOW_PROXY_HOST"),
-        required=not _env("SOLARFLOW_PROXY", "SOLARFLOW_PROXY_HOST"),
+        default=os.getenv("SOLARFLOW_PROXY"),
+        required=not os.getenv("SOLARFLOW_PROXY"),
     )
-    parser.add_argument("--noise-psk", default=_env("SOLARFLOW_NOISE_PSK", "SOLARFLOW_PROXY_NOISE_PSK"))
+    parser.add_argument("--noise-psk", default=os.getenv("SOLARFLOW_NOISE_PSK"))
     parser.add_argument("--address", default=os.getenv("SOLARFLOW_DEVICE_ADDRESS"))
     parser.add_argument(
         "--identifier", default=os.getenv("SOLARFLOW_DEVICE_IDENTIFIER")

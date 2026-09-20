@@ -15,7 +15,13 @@ from .client import BleTransport, NotificationCallback
 class BleakTransport(BleTransport):
     """Adapt a Bleak client to the SolarFlow transport protocol."""
 
-    def __init__(self, device: BLEDevice, *, timeout: float = 30.0, client_factory: Callable[..., BleakClient] = BleakClient) -> None:
+    def __init__(
+        self,
+        device: BLEDevice,
+        *,
+        timeout: float = 30.0,
+        client_factory: Callable[..., BleakClient] = BleakClient,
+    ) -> None:
         self.device = device
         self.timeout = timeout
         self._client_factory = client_factory
@@ -38,8 +44,12 @@ class BleakTransport(BleTransport):
             await self._client.disconnect()
         self._client = None
 
-    async def start_notify(self, characteristic: str, callback: NotificationCallback) -> None:
-        def on_notification(gatt_characteristic: BleakGATTCharacteristic, payload: bytearray) -> None:
+    async def start_notify(
+        self, characteristic: str, callback: NotificationCallback
+    ) -> None:
+        def on_notification(
+            gatt_characteristic: BleakGATTCharacteristic, payload: bytearray
+        ) -> None:
             result = callback(gatt_characteristic.uuid, bytes(payload))
             if isinstance(result, Coroutine):
                 asyncio.create_task(result)
@@ -50,5 +60,7 @@ class BleakTransport(BleTransport):
         if self._client is not None and self._client.is_connected:
             await self._client.stop_notify(characteristic)
 
-    async def write_gatt_char(self, characteristic: str, data: bytes, response: bool = False) -> None:
+    async def write_gatt_char(
+        self, characteristic: str, data: bytes, response: bool = False
+    ) -> None:
         await self.client.write_gatt_char(characteristic, data, response=response)

@@ -37,12 +37,14 @@ _REPORT_FIELDS = {
 
 class AcMode(IntEnum):
     """Known AC modes."""
+
     CHARGING = 1
     DISCHARGING = 2
 
 
 class PackState(IntEnum):
     """Known pack states."""
+
     STANDBY = 0
     CHARGING = 1
     DISCHARGING = 2
@@ -50,6 +52,7 @@ class PackState(IntEnum):
 
 class ConnectionStatus(StrEnum):
     """Protocol session status."""
+
     DISCONNECTED = "disconnected"
     CONNECTED = "connected"
     PROTOCOL_READY = "protocol_ready"
@@ -59,6 +62,7 @@ class ConnectionStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class BatteryPack:
     """Latest state reported for one battery pack."""
+
     serial_number: str
     pack_type: int | None = None
     soc_level: int | None = None
@@ -76,6 +80,7 @@ class BatteryPack:
 @dataclass(frozen=True, slots=True)
 class Advertisement:
     """A SolarFlow BLE advertisement."""
+
     address: str
     identifier: str
     rssi: int | None = None
@@ -86,6 +91,7 @@ class Advertisement:
 @dataclass(frozen=True, slots=True)
 class SolarFlowState:
     """Latest decoded controller state."""
+
     pack_input_power: int | None = None
     output_pack_power: int | None = None
     battery_power: int | None = None
@@ -127,14 +133,26 @@ class SolarFlowState:
         }
         current = replace(self, raw={**(self.raw or {}), **values})
         current = replace(current, **cast(Any, changes))
-        if current.pack_input_power is not None and current.output_pack_power is not None:
-            current = replace(current, battery_power=current.output_pack_power - current.pack_input_power)
+        if (
+            current.pack_input_power is not None
+            and current.output_pack_power is not None
+        ):
+            current = replace(
+                current,
+                battery_power=current.output_pack_power - current.pack_input_power,
+            )
         return current
 
     def with_identity(self, message: dict[str, object]) -> SolarFlowState:
         device_id = message.get("deviceId")
         product_key = message.get("productKey")
-        return replace(self, device_id=device_id if isinstance(device_id, str) else self.device_id, product_key=product_key if isinstance(product_key, str) else self.product_key)
+        return replace(
+            self,
+            device_id=device_id if isinstance(device_id, str) else self.device_id,
+            product_key=product_key
+            if isinstance(product_key, str)
+            else self.product_key,
+        )
 
     def with_packs(self, message: dict[str, object]) -> SolarFlowState:
         raw_packs = message.get("packData")
@@ -144,13 +162,27 @@ class SolarFlowState:
         for raw in raw_packs:
             if not isinstance(raw, dict) or not isinstance(raw.get("sn"), str):
                 continue
-            known[raw["sn"]] = BatteryPack(serial_number=raw["sn"], pack_type=raw.get("packType"), soc_level=raw.get("socLevel"), state=raw.get("state"), power=raw.get("power"), max_temp=raw.get("maxTemp"), total_voltage=raw.get("totalVol"), battery_current=raw.get("batcur"), max_voltage=raw.get("maxVol"), min_voltage=raw.get("minVol"), software_version=raw.get("softVersion"), heat_state=raw.get("heatState"))
+            known[raw["sn"]] = BatteryPack(
+                serial_number=raw["sn"],
+                pack_type=raw.get("packType"),
+                soc_level=raw.get("socLevel"),
+                state=raw.get("state"),
+                power=raw.get("power"),
+                max_temp=raw.get("maxTemp"),
+                total_voltage=raw.get("totalVol"),
+                battery_current=raw.get("batcur"),
+                max_voltage=raw.get("maxVol"),
+                min_voltage=raw.get("minVol"),
+                software_version=raw.get("softVersion"),
+                heat_state=raw.get("heatState"),
+            )
         return replace(self, packs=tuple(known.values()))
 
 
 @dataclass(frozen=True, slots=True)
 class SolarFlowUpdate:
     """Typed state update delivered to an optional callback."""
+
     state: SolarFlowState
     status: ConnectionStatus
     raw_message: dict[str, object]

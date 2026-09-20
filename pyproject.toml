@@ -22,6 +22,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "coverage[toml]>=7.15.2",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -30,3 +31,56 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN401",
+    "CPY001",
+    "COM812",
+    "C901",
+    "EM101",
+    "EM102",
+    "FBT001",
+    "FBT002",
+    "FBT003",
+    "FURB110",
+    "D",
+    "ISC001",
+    "PLR0913",
+    "PLR0917",
+    "PLR2004",
+    "RUF036",
+    "RUF006",
+    "TRY003",
+    "TC001",
+    "TC002",
+    "TC003",
+    "TC006",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "ANN",
+    "ARG",
+    "CPY001",
+    "FBT",
+    "INP001",
+    "PLC0415",
+    "PLR2004",
+    "S101",
+    "S105",
+    "S106",
+    "SLF001",
+]
+
+"scripts/check.py" = ["S603", "T201"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true

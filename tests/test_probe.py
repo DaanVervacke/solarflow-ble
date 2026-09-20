@@ -4,7 +4,6 @@ from solarflow_ble.probe import (
     CaptureWriter,
     ProbeConfig,
     _advertisement_matches,
-    _env,
     _redact_capture,
 )
 
@@ -87,15 +86,3 @@ def test_redact_capture_handles_nested_values() -> None:
         "serial_number": "PACK_SERIAL",
         "value": 1,
     }
-
-
-def test_env_prefers_canonical_name(monkeypatch) -> None:
-    monkeypatch.setenv("SOLARFLOW_PROXY", "canonical")
-    monkeypatch.setenv("SOLARFLOW_PROXY_HOST", "legacy")
-    assert _env("SOLARFLOW_PROXY", "SOLARFLOW_PROXY_HOST") == "canonical"
-
-
-def test_env_falls_back_to_legacy_name(monkeypatch) -> None:
-    monkeypatch.delenv("SOLARFLOW_PROXY", raising=False)
-    monkeypatch.setenv("SOLARFLOW_PROXY_HOST", "legacy")
-    assert _env("SOLARFLOW_PROXY", "SOLARFLOW_PROXY_HOST") == "legacy"

@@ -13,7 +13,7 @@
 - Run the full test suite with `uv run pytest`.
 - Run one test file with `uv run pytest tests/test_solarflow.py`; select one test with `uv run pytest tests/test_solarflow.py -k connect_handshake`.
 - Run static checks with `uv run ruff check .` and `uv run mypy src`.
-- Use the package entry points from the environment as `uv run solarflow-ble` or `uv run solarflow-ble-probe`. The probe uses `SOLARFLOW_PROXY` and `SOLARFLOW_NOISE_PSK`; the old `SOLARFLOW_PROXY_HOST` and `SOLARFLOW_PROXY_NOISE_PSK` names remain fallback aliases.
+- Use the package entry points from the environment as `uv run solarflow-ble` or `uv run solarflow-ble-probe`. The probe uses `SOLARFLOW_PROXY` and `SOLARFLOW_NOISE_PSK`.
 
 ## Development constraints
 
