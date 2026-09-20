@@ -1,0 +1,32 @@
+[project]
+name = "solarflow-ble"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Daan Vervacke", email = "daan.vervacke@proton.me" }]
+requires-python = ">=3.14"
+dependencies = [
+    "bleak>=1.1.1",
+    "bleak-esphome>=4.1.0",
+    "bleak-retry-connector>=4.7.1",
+    "habluetooth>=7.0.0",
+]
+
+[project.scripts]
+solarflow-ble = "solarflow_ble:main"
+solarflow-ble-probe = "solarflow_ble.probe:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.8",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
