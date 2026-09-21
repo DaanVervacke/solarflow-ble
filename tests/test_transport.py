@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import bleak
 import pytest
-
 from solarflow_ble.transport import BleakTransport
 
 

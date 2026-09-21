@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from solarflow_ble import SolarFlowState
 from solarflow_ble.models import BatteryPack, ConnectionStatus, SolarFlowUpdate
 
