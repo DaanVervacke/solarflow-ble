@@ -92,6 +92,10 @@ uv run scripts/probe_solarflow.py \
   --scan-seconds 30
 ```
 
+Advertisement addresses and parsed SolarFlow identifiers are redacted by
+default. Add `--show-identities` when selecting values for `--address` or
+`--identifier`; capture files remain redacted.
+
 Target a specific SolarFlow device by Bluetooth address:
 
 ```bash
@@ -148,6 +152,61 @@ Run one test file or test:
 uv run pytest tests/test_solarflow.py
 uv run pytest tests/test_solarflow.py -k connect_handshake
 ```
+
+### Standalone library client test
+
+Use the standalone diagnostic to exercise `SolarFlowClient` through an
+ESPHome Bluetooth proxy. It discovers exactly one target by address or
+SolarFlow advertisement identifier and is read-only unless controls are
+explicitly confirmed.
+
+```bash
+uv run scripts/test_solarflow_client.py \
+  --proxy "192.168.1.157" \
+  --noise-psk "your-esphome-noise-psk" \
+  --identifier "DEVICE_IDENTIFIER" \
+  --duration 30 \
+  --output /tmp/solarflow-library-test.jsonl
+```
+
+The script prints device identities and decoded state to stdout for local
+diagnostics. The optional JSONL file is always recursively redacted. Controls
+require both `--controls` and `--confirm-controls`; they also require explicit
+`--min-soc` and `--soc` values because those original wire values are not
+available safely for restoration.
+
+The connection settings can be kept in the ignored local config file
+`scripts/test_solarflow_client.local.json`. The file may contain `proxy`,
+`noise_psk`, and exactly one of `address` or `identifier`:
+
+```json
+{
+  "proxy": "192.168.1.157",
+  "noise_psk": "your-esphome-noise-psk",
+  "identifier": "DEVICE_IDENTIFIER"
+}
+```
+
+Run the diagnostic with the default local file:
+
+```bash
+uv run scripts/test_solarflow_client.py --duration 30
+```
+
+Use `--config path/to/config.json` for another local file. Command-line values
+override values from the config file, so individual settings can be replaced
+without editing it:
+
+```bash
+uv run scripts/test_solarflow_client.py \
+  --config scripts/test_solarflow_client.local.json \
+  --identifier "OTHER_DEVICE_IDENTIFIER"
+```
+
+Do not commit this file or paste a real `noise_psk` into documentation,
+fixtures, logs, or shell history. The default local filename is ignored by
+Git; use a file with equivalent local-only handling when choosing another
+config path. The script never prints or writes `noise_psk`.
 
 ## License
 

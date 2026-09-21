@@ -11,3 +11,6 @@ wheels/
 .coverage
 htmlcov/
 coverage.xml
+
+# Local standalone client credentials and device settings
+scripts/test_solarflow_client.local.json

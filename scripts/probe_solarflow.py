@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,8 +28,11 @@ from habluetooth import (
     BluetoothServiceInfoBleak,
 )
 
-from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID, WRITE_CHARACTERISTIC_UUID
-from solarflow_ble.protocol import encode_json, parse_advertisement
+from solarflow_ble import BleakTransport, SolarFlowClient
+from solarflow_ble.client import BleTransport, NotificationCallback
+from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
+from solarflow_ble.exceptions import SolarFlowError
+from solarflow_ble.protocol import parse_advertisement
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +57,7 @@ class ProbeConfig:
     capture_seconds: float
     send_handshake: bool
     list_advertisements: bool
+    show_identities: bool = False
 
     def __post_init__(self) -> None:
         if self.target_address:
@@ -96,6 +100,40 @@ class CaptureWriter:
     def close(self) -> None:
         if self._file:
             self._file.close()
+
+
+class CaptureTransport(BleTransport):
+    """Capture transport traffic while delegating to a BLE transport."""
+
+    def __init__(self, transport: BleTransport, capture: CaptureWriter) -> None:
+        self._transport = transport
+        self._capture = capture
+
+    async def connect(self) -> None:
+        await self._transport.connect()
+
+    async def disconnect(self) -> None:
+        await self._transport.disconnect()
+
+    async def start_notify(
+        self, characteristic: str, callback: NotificationCallback
+    ) -> None:
+        async def on_notification(received_characteristic: str, payload: bytes) -> None:
+            self._capture.write("rx", payload, characteristic=received_characteristic)
+            result = callback(received_characteristic, payload)
+            if isinstance(result, Awaitable):
+                await result
+
+        await self._transport.start_notify(characteristic, on_notification)
+
+    async def stop_notify(self, characteristic: str) -> None:
+        await self._transport.stop_notify(characteristic)
+
+    async def write_gatt_char(
+        self, characteristic: str, data: bytes, response: bool = False
+    ) -> None:
+        self._capture.write("tx", data, characteristic=characteristic)
+        await self._transport.write_gatt_char(characteristic, data, response=response)
 
 
 def _find_characteristic(
@@ -152,6 +190,20 @@ def _advertisement_matches(config: ProbeConfig, device: BLEDevice) -> bool:
     return not config.target_address or device.address.upper() == config.target_address
 
 
+def _log_found_target(
+    config: ProbeConfig,
+    device: BLEDevice,
+    identifier: str | None = None,
+) -> None:
+    if not config.show_identities:
+        _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", device.name)
+        return
+    identity = f"address={device.address}"
+    if identifier is not None:
+        identity += f" identifier={identifier}"
+    _LOGGER.info("Found target %s name=%s", identity, device.name)
+
+
 async def _find_device(
     config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager
 ) -> BLEDevice:
@@ -163,16 +215,12 @@ async def _find_device(
                 config.target_address, connectable=True
             )
             if device is not None:
-                _LOGGER.info(
-                    "Found target address=%s name=%s", "DEVICE_ADDRESS", device.name
-                )
+                _log_found_target(config, device)
                 return device
         if config.target_address:
             for device in bluetooth_manager.async_discovered_devices(True):
                 if _advertisement_matches(config, device):
-                    _LOGGER.info(
-                        "Found target address=%s name=%s", "DEVICE_ADDRESS", device.name
-                    )
+                    _log_found_target(config, device)
                     return device
         for scanner in bluetooth_manager.async_current_scanners():
             discovered = cast(
@@ -193,7 +241,7 @@ async def _find_device(
                     and parsed.identifier != config.target_identifier
                 ):
                     continue
-                _LOGGER.info("Found target via proxy scanner")
+                _log_found_target(config, device, parsed.identifier)
                 return device
         if asyncio.get_running_loop().time() >= deadline:
             raise TimeoutError("SolarFlow device was not found through the proxy")
@@ -217,9 +265,21 @@ async def _list_advertisements(
                 if device.address in seen:
                     continue
                 seen.add(device.address)
+                parsed = parse_advertisement(
+                    device.address,
+                    advertisement.manufacturer_data,
+                    rssi=advertisement.rssi,
+                    connectable=True,
+                )
+                if config.show_identities:
+                    identity = f"address={device.address}"
+                    if parsed is not None:
+                        identity += f" identifier={parsed.identifier}"
+                else:
+                    identity = "address=DEVICE_ADDRESS"
                 _LOGGER.info(
-                    "ADVERTISEMENT address=%s rssi=%s service_uuids=%s",
-                    "DEVICE_ADDRESS",
+                    "ADVERTISEMENT %s rssi=%s service_uuids=%s",
+                    identity,
                     advertisement.rssi,
                     advertisement.service_uuids,
                 )
@@ -228,15 +288,34 @@ async def _list_advertisements(
     _LOGGER.info("Advertisement scan complete; unique devices=%d", len(seen))
 
 
-async def _write(
-    client: bleak.BleakClient,
-    characteristic: BleakGATTCharacteristic,
-    message: dict[str, Any],
-    capture: CaptureWriter,
+async def _run_passive_capture(
+    config: ProbeConfig, device: BLEDevice, capture: CaptureWriter
 ) -> None:
-    payload = encode_json(message)
-    capture.write("tx", payload, characteristic=characteristic.uuid)
-    await client.write_gatt_char(characteristic, payload, response=False)
+    """Capture notifications through the direct Bleak path without writes."""
+    client = await establish_connection(
+        bleak.BleakClient,
+        device,
+        device.name or device.address,
+        timeout=30,
+    )
+    try:
+        connected_address = (
+            device.address if config.show_identities else "DEVICE_ADDRESS"
+        )
+        _LOGGER.info("Connected to %s", connected_address)
+        notify_characteristic = _find_characteristic(client, NOTIFY_CHARACTERISTIC_UUID)
+
+        def on_notification(
+            characteristic: BleakGATTCharacteristic, payload: bytearray
+        ) -> None:
+            capture.write("rx", bytes(payload), characteristic=characteristic.uuid)
+
+        await client.start_notify(notify_characteristic, on_notification)
+        await asyncio.sleep(config.capture_seconds)
+        await client.stop_notify(notify_characteristic)
+    finally:
+        with suppress(Exception):
+            await client.disconnect()
 
 
 async def run_probe(config: ProbeConfig) -> None:
@@ -263,71 +342,21 @@ async def run_probe(config: ProbeConfig) -> None:
             await _list_advertisements(config, bluetooth_manager)
             return
         device = await _find_device(config, bluetooth_manager)
-        client = await establish_connection(
-            bleak.BleakClient,
-            device,
-            device.name or device.address,
-            timeout=30,
-        )
-        try:
-            _LOGGER.info("Connected to DEVICE_ADDRESS")
-            for service in client.services:
-                _LOGGER.info("Service %s", service.uuid)
-                for characteristic in service.characteristics:
-                    _LOGGER.info(
-                        "Characteristic %s properties=%s",
-                        characteristic.uuid,
-                        ",".join(characteristic.properties),
-                    )
-
-            write_characteristic = _find_characteristic(
-                client, WRITE_CHARACTERISTIC_UUID
-            )
-            notify_characteristic = _find_characteristic(
-                client, NOTIFY_CHARACTERISTIC_UUID
-            )
-
-            def on_notification(
-                characteristic: BleakGATTCharacteristic, payload: bytearray
-            ) -> None:
-                capture.write("rx", bytes(payload), characteristic=characteristic.uuid)
-
-            await client.start_notify(notify_characteristic, on_notification)
-            if config.send_handshake:
-                await _write(
-                    client,
-                    write_characteristic,
-                    {"messageId": "1009", "method": "BLESPP_OK"},
-                    capture,
+        if not config.send_handshake:
+            await _run_passive_capture(config, device, capture)
+        else:
+            transport = CaptureTransport(BleakTransport(device), capture)
+            client = SolarFlowClient(transport)
+            try:
+                await client.connect()
+                device_id = client.device_id if config.show_identities else "DEVICE_ID"
+                _LOGGER.info(
+                    "SolarFlow connected device_id=%s status=%s",
+                    device_id,
+                    client.status,
                 )
-                await asyncio.sleep(0.5)
-                timestamp = int(time.time() * 1000)
-                await _write(
-                    client,
-                    write_characteristic,
-                    {
-                        "messageId": str(timestamp),
-                        "method": "getInfo",
-                        "timestamp": timestamp,
-                    },
-                    capture,
-                )
-                await asyncio.sleep(0.3)
-                await _write(
-                    client,
-                    write_characteristic,
-                    {
-                        "messageId": "11",
-                        "timestamp": int(time.time() * 1000),
-                        "properties": ["getAll"],
-                        "method": "read",
-                    },
-                    capture,
-                )
-            await asyncio.sleep(config.capture_seconds)
-            await client.stop_notify(notify_characteristic)
-        finally:
-            with suppress(Exception):
+                await asyncio.sleep(config.capture_seconds)
+            finally:
                 await client.disconnect()
     finally:
         capture.close()
@@ -358,6 +387,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List every advertisement and do not connect to a peripheral",
     )
+    parser.add_argument(
+        "--show-identities",
+        action="store_true",
+        help="Show real BLE addresses and SolarFlow advertisement identifiers",
+    )
     return parser
 
 
@@ -380,10 +414,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     capture_seconds=args.capture_seconds,
                     send_handshake=not args.no_handshake,
                     list_advertisements=args.list_advertisements,
+                    show_identities=args.show_identities,
                 )
             )
         )
-    except (BleakError, OSError, RuntimeError, TimeoutError) as err:
+    except (BleakError, OSError, RuntimeError, SolarFlowError, TimeoutError) as err:
         _LOGGER.warning("Probe failed: %s", err)
         return 1
     return 0

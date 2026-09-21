@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,6 +12,7 @@ from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
 from solarflow_ble.exceptions import (
     SolarFlowDeviceError,
     SolarFlowNotReadyError,
+    SolarFlowProtocolError,
     SolarFlowTimeoutError,
     SolarFlowValidationError,
 )
@@ -65,9 +67,55 @@ def test_report_fields_merge() -> None:
     assert state.battery_power == 30
 
 
+def test_pack_fields_merge_across_partial_pack_data_records() -> None:
+    state = SolarFlowState().with_packs(
+        {
+            "packData": [{"sn": "PACK-1"}, {"sn": "PACK-2"}],
+        }
+    )
+    state = state.with_packs(
+        {
+            "packData": [
+                {
+                    "sn": "PACK-1",
+                    "packType": 5,
+                    "socLevel": 25,
+                    "power": 100,
+                    "maxTemp": 2971,
+                },
+                {
+                    "sn": "PACK-2",
+                    "packType": 6,
+                    "socLevel": 40,
+                    "power": 200,
+                },
+            ],
+        }
+    )
+    state = state.with_packs(
+        {
+            "packData": [
+                {"sn": "PACK-1", "socLevel": 26},
+                {"sn": "PACK-2", "power": 250},
+            ],
+        }
+    )
+
+    packs = {pack.serial_number: pack for pack in state.packs}
+    assert list(packs) == ["PACK-1", "PACK-2"]
+    assert packs["PACK-1"].pack_type == 5
+    assert packs["PACK-1"].soc_level == 26
+    assert packs["PACK-1"].power == 100
+    assert packs["PACK-1"].max_temp == 2971
+    assert packs["PACK-2"].pack_type == 6
+    assert packs["PACK-2"].soc_level == 40
+    assert packs["PACK-2"].power == 250
+
+
 class FakeTransport:
     def __init__(self) -> None:
         self.writes: list[bytes] = []
+        self.events: list[str] = []
         self.callback: NotificationCallback | None = None
 
     async def connect(self) -> None:
@@ -83,6 +131,8 @@ class FakeTransport:
     ) -> None:
         assert characteristic == NOTIFY_CHARACTERISTIC_UUID
         self.callback = callback
+        self.events.append("BLESPP")
+        await self._emit(callback, b'{"method":"BLESPP","deviceId":"DEVICE-1"}')
 
     async def stop_notify(self, characteristic: str) -> None:
         pass
@@ -91,10 +141,16 @@ class FakeTransport:
         self, characteristic: str, data: bytes, response: bool = False
     ) -> None:
         self.writes.append(data)
+        message = json.loads(data)
+        self.events.append(message["method"])
         callback = self.callback
-        if callback and b'"method":"getInfo"' in data:
+        assert callback is not None
+        if message["method"] == "getInfo":
+            self.events.append("getInfo-rsp")
             await self._emit(callback, b'{"method":"getInfo-rsp"}')
-        if callback is not None and b'"method":"read"' in data:
+        elif message["method"] == "read":
+            self.events.extend(("read_reply", "report"))
+            await self._emit(callback, b'{"method":"read_reply","success":false}')
             await self._emit(
                 callback, b'{"method":"report","properties":{"smartMode":1}}'
             )
@@ -112,13 +168,15 @@ class ReportTransport(FakeTransport):
     async def write_gatt_char(
         self, characteristic: str, data: bytes, response: bool = False
     ) -> None:
-        await super().write_gatt_char(characteristic, data, response)
+        self.writes.append(data)
         callback = self.callback
         if callback is None:
             return
-        if b'"method":"getInfo"' in data:
+        message = json.loads(data)
+        if message["method"] == "getInfo":
             await self._emit(callback, b'{"method":"getInfo-rsp","messageId":1}')
-        elif b'"method":"read"' in data:
+        elif message["method"] == "read":
+            await self._emit(callback, b'{"method":"read_reply"}')
             await self._emit(
                 callback,
                 b'{"method":"report","messageId":1,"properties":{"smartMode":0,"electricLevel":26}}',
@@ -150,14 +208,25 @@ class FailingTransport(FakeTransport):
         self, characteristic: str, data: bytes, response: bool = False
     ) -> None:
         self.writes.append(data)
+        message = json.loads(data)
         if self.failure == "getInfo":
             return
-        if b'"method":"getInfo"' in data:
+        if message["method"] == "getInfo":
             assert self.callback is not None
             await self._emit(self.callback, b'{"method":"getInfo-rsp"}')
-        if self.failure == "initial" and b'"method":"read"' in data:
+        if self.failure == "initial" and message["method"] == "read":
             assert self.callback is not None
             await self._emit(self.callback, b'{"method":"error","data":[{"code":40}]}')
+
+
+class PreHandshakeTimeoutTransport(FailingTransport):
+    async def start_notify(
+        self,
+        characteristic: str,
+        callback: NotificationCallback,
+    ) -> None:
+        assert characteristic == NOTIFY_CHARACTERISTIC_UUID
+        self.callback = callback
 
 
 @pytest.mark.asyncio
@@ -168,6 +237,21 @@ async def test_connect_failure_cleans_up_after_get_info_timeout() -> None:
     )
 
     with pytest.raises(SolarFlowTimeoutError):
+        await client.connect()
+
+    assert not client.connected
+    assert transport.stop_notify_calls == 1
+    assert transport.disconnect_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_cleans_up_before_ble_spp_handshake() -> None:
+    transport = PreHandshakeTimeoutTransport("getInfo")
+    client = SolarFlowClient(
+        transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0
+    )
+
+    with pytest.raises(SolarFlowTimeoutError, match="BLESPP"):
         await client.connect()
 
     assert not client.connected
@@ -196,7 +280,44 @@ async def test_connect_handshake() -> None:
     client = SolarFlowClient(transport, response_timeout=0.1, keepalive_seconds=60)
     await client.connect()
     assert client.ready
+    assert client.ble_spp_delay == 0.3
+    assert client.device_id == "DEVICE-1"
+    assert client.state.device_id == "DEVICE-1"
     assert len(transport.writes) == 3
+    messages = [json.loads(write) for write in transport.writes]
+    assert [message["method"] for message in messages] == [
+        "BLESPP_OK",
+        "getInfo",
+        "read",
+    ]
+    assert messages[0]["messageId"] == 1009
+    assert messages[1]["deviceId"] == "DEVICE-1"
+    assert messages[1]["messageId"] == 1
+    assert messages[2]["deviceId"] == "DEVICE-1"
+    assert messages[2]["messageId"] == 2
+    assert transport.events == [
+        "BLESPP",
+        "BLESPP_OK",
+        "getInfo",
+        "getInfo-rsp",
+        "read",
+        "read_reply",
+        "report",
+    ]
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_message_ids_continue_across_reconnect() -> None:
+    transport = FakeTransport()
+    client = SolarFlowClient(
+        transport, response_timeout=0.1, keepalive_seconds=60, ble_spp_delay=0
+    )
+    await client.connect()
+    await client.disconnect()
+    await client.connect()
+    messages = [json.loads(write) for write in transport.writes]
+    assert [message["messageId"] for message in messages] == [1009, 1, 2, 1009, 3, 4]
     await client.disconnect()
 
 
@@ -222,6 +343,75 @@ async def test_device_error_report_is_exposed() -> None:
         NOTIFY_CHARACTERISTIC_UUID, b'{"method":"error","data":[{"code":40}]}'
     )
     assert client.state.smart_mode is None
+
+
+@pytest.mark.asyncio
+async def test_read_reply_reaches_callback_without_interpreting_success() -> None:
+    updates: list[Any] = []
+
+    async def callback(update: Any) -> None:
+        updates.append(update)
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        update_callback=callback,
+    )
+    await client.connect()
+    read_reply = [
+        update for update in updates if update.raw_message["method"] == "read_reply"
+    ]
+    assert len(read_reply) == 1
+    assert read_reply[0].state.smart_mode is None
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_missing_ble_spp_device_id_is_rejected() -> None:
+    transport = FakeTransport()
+    transport.callback = None
+
+    async def start_notify(characteristic: str, callback: NotificationCallback) -> None:
+        transport.callback = callback
+        await transport._emit(callback, b'{"method":"BLESPP"}')
+
+    transport.start_notify = start_notify  # type: ignore[method-assign]
+    client = SolarFlowClient(transport, response_timeout=0.1, ble_spp_delay=0)
+    with pytest.raises(SolarFlowProtocolError, match="deviceId"):
+        await client.connect()
+    assert not client.connected
+
+
+@pytest.mark.asyncio
+async def test_constructor_device_id_mismatch_is_rejected() -> None:
+    transport = FakeTransport()
+    client = SolarFlowClient(
+        transport, device_id="DEVICE-2", response_timeout=0.1, ble_spp_delay=0
+    )
+    with pytest.raises(SolarFlowProtocolError, match="does not match"):
+        await client.connect()
+    assert not client.connected
+
+
+@pytest.mark.asyncio
+async def test_later_device_id_mismatch_is_rejected() -> None:
+    transport = FakeTransport()
+    client = SolarFlowClient(transport, response_timeout=0.1)
+    await transport.start_notify(NOTIFY_CHARACTERISTIC_UUID, client._notification)
+    client.device_id = "DEVICE-1"
+    with pytest.raises(SolarFlowProtocolError, match="does not match"):
+        await client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","deviceId":"DEVICE-2","properties":{}}',
+        )
+
+
+def test_message_id_counter_skips_reserved_id_and_is_integer() -> None:
+    client = SolarFlowClient(FakeTransport())
+    client._message_id = 1008
+    assert client._next_message_id() == 1008
+    assert client._next_message_id() == 1010
 
 
 def test_invalid_limits_rejected() -> None:
