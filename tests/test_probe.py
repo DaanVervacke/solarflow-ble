@@ -100,16 +100,21 @@ def test_capture_writer_redacts_identity(tmp_path: Path) -> None:
     assert "PACK_SERIAL" in content
 
 
-def test_capture_writer_preserves_non_json_payload(tmp_path: Path) -> None:
+def test_capture_writer_redacts_non_json_payload(tmp_path: Path) -> None:
     path = tmp_path / "capture.jsonl"
     writer = CaptureWriter(path)
-    writer.write("rx", b"\x00\xffraw")
+    payload = b"secret-device\x00secret-password"
+    writer.write("rx", payload, characteristic="notify")
     writer.close()
 
     content = path.read_text()
-    assert '"hex":"00ff726177"' in content
+    assert '"hex":"[binary payload redacted]"' in content
     assert '"json":null' in content
-    assert '"text":"\\u0000\\ufffdraw"' in content
+    assert '"text":"[binary payload redacted]"' in content
+    assert f'"payload_length":{len(payload)}' in content
+    assert payload.hex() not in content
+    assert "secret-device" not in content
+    assert "secret-password" not in content
 
 
 @pytest.mark.asyncio
