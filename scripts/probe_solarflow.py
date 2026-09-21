@@ -154,8 +154,8 @@ def _advertisement_matches(config: ProbeConfig, device: BLEDevice) -> bool:
 async def _find_device(
     config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager
 ) -> BLEDevice:
-    deadline = asyncio.get_running_loop().time() + config.scan_seconds
     await asyncio.sleep(5)
+    deadline = asyncio.get_running_loop().time() + config.scan_seconds
     while True:
         if config.target_address:
             device = bluetooth_manager.async_ble_device_from_address(
@@ -203,9 +203,9 @@ async def _list_advertisements(
     config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager
 ) -> None:
     """Print every advertisement seen by the proxy during the scan window."""
-    deadline = asyncio.get_running_loop().time() + config.scan_seconds
     seen: set[str] = set()
     await asyncio.sleep(5)
+    deadline = asyncio.get_running_loop().time() + config.scan_seconds
     while asyncio.get_running_loop().time() < deadline:
         for scanner in bluetooth_manager.async_current_scanners():
             discovered = cast(

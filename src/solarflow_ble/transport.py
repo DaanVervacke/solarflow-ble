@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine
+import logging
+from collections.abc import Awaitable, Callable
+from contextlib import suppress
 
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 
 from .client import BleTransport, NotificationCallback
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class BleakTransport(BleTransport):
@@ -26,6 +30,7 @@ class BleakTransport(BleTransport):
         self.timeout = timeout
         self._client_factory = client_factory
         self._client: BleakClient | None = None
+        self._notification_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def client(self) -> BleakClient:
@@ -40,9 +45,11 @@ class BleakTransport(BleTransport):
             await self._client.connect()
 
     async def disconnect(self) -> None:
-        if self._client is not None:
-            await self._client.disconnect()
+        client = self._client
         self._client = None
+        if client is not None:
+            await client.disconnect()
+        await self._cancel_notification_tasks()
 
     async def start_notify(
         self, characteristic: str, callback: NotificationCallback
@@ -51,8 +58,10 @@ class BleakTransport(BleTransport):
             gatt_characteristic: BleakGATTCharacteristic, payload: bytearray
         ) -> None:
             result = callback(gatt_characteristic.uuid, bytes(payload))
-            if isinstance(result, Coroutine):
-                asyncio.create_task(result)
+            if isinstance(result, Awaitable):
+                task = asyncio.ensure_future(result)
+                self._notification_tasks.add(task)
+                task.add_done_callback(self._notification_task_done)
 
         await self.client.start_notify(characteristic, on_notification)
 
@@ -64,3 +73,20 @@ class BleakTransport(BleTransport):
         self, characteristic: str, data: bytes, response: bool = False
     ) -> None:
         await self.client.write_gatt_char(characteristic, data, response=response)
+
+    def _notification_task_done(self, task: asyncio.Task[None]) -> None:
+        self._notification_tasks.discard(task)
+        if task.cancelled():
+            return
+        with suppress(asyncio.CancelledError):
+            error = task.exception()
+        if error is not None:
+            _LOGGER.error("SolarFlow notification callback failed", exc_info=error)
+
+    async def _cancel_notification_tasks(self) -> None:
+        tasks = tuple(self._notification_tasks)
+        if not tasks:
+            return
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)

@@ -13,10 +13,6 @@ dependencies = [
     "habluetooth>=7.0.0",
 ]
 
-[project.scripts]
-solarflow-ble = "solarflow_ble:main"
-solarflow-ble-probe = "solarflow_ble.probe:main"
-
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"

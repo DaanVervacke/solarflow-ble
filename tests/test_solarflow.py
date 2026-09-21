@@ -22,6 +22,23 @@ def test_parse_advertisement() -> None:
     assert result.identifier == "TEST_DEVICE"
 
 
+@pytest.mark.parametrize("payload", [b"\xff", b"VALID\xff", b"\xff\x16"])
+def test_parse_advertisement_ignores_malformed_identifier(payload: bytes) -> None:
+    assert parse_advertisement("AA", {0x4F48: payload}) is None
+
+
+@pytest.mark.parametrize("payload", [b"VALID", b"VALID\x16"])
+def test_parse_advertisement_preserves_valid_identifier(payload: bytes) -> None:
+    result = parse_advertisement("AA", {0x4F48: payload})
+    assert result is not None
+    assert result.identifier == "VALID"
+
+
+def test_parse_advertisement_ignores_empty_identifier() -> None:
+    assert parse_advertisement("AA", {0x4F48: b""}) is None
+    assert parse_advertisement("AA", {0x4F48: b"\x16"}) is None
+
+
 def test_state_derives_battery_power() -> None:
     state = SolarFlowState().update({"packInputPower": 100, "outputPackPower": 400})
     assert state.battery_power == 300

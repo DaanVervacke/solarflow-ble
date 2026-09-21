@@ -20,11 +20,14 @@ def parse_advertisement(
     payload = manufacturer_data.get(MANUFACTURER_ID)
     if payload is None:
         return None
-    identifier = (
-        payload[:-1].decode("ascii")
-        if payload.endswith(b"\x16")
-        else payload.decode("ascii")
-    )
+    try:
+        identifier = (
+            payload[:-1].decode("ascii")
+            if payload.endswith(b"\x16")
+            else payload.decode("ascii")
+        )
+    except UnicodeDecodeError:
+        return None
     return (
         Advertisement(address, identifier, rssi, connectable, address_type)
         if identifier

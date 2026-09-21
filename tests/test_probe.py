@@ -1,6 +1,8 @@
+import asyncio
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,6 +18,8 @@ CaptureWriter = _MODULE.CaptureWriter
 ProbeConfig = _MODULE.ProbeConfig
 ProbeBluetoothManager = _MODULE.ProbeBluetoothManager
 _advertisement_matches = _MODULE._advertisement_matches
+_find_device = _MODULE._find_device
+_list_advertisements = _MODULE._list_advertisements
 _redact_capture = _MODULE._redact_capture
 main = _MODULE.main
 
@@ -102,6 +106,74 @@ def test_redact_capture_handles_nested_values() -> None:
         "serial_number": "PACK_SERIAL",
         "value": 1,
     }
+
+
+def _scan_config() -> Any:
+    return ProbeConfig(
+        proxy="proxy.local",
+        noise_psk=None,
+        target_address=None,
+        target_identifier=None,
+        output=None,
+        scan_seconds=2,
+        capture_seconds=1,
+        send_handshake=False,
+        list_advertisements=False,
+    )
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def time(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def test_find_device_scan_window_excludes_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(_MODULE.asyncio, "sleep", clock.sleep)
+    monkeypatch.setattr(
+        _MODULE.asyncio,
+        "get_running_loop",
+        lambda: SimpleNamespace(time=clock.time),
+    )
+    manager = SimpleNamespace(
+        async_ble_device_from_address=lambda *_args, **_kwargs: None,
+        async_discovered_devices=lambda *_args: [],
+        async_current_scanners=list,
+    )
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(_find_device(_scan_config(), manager))
+
+    assert clock.sleeps[0] == 5
+    assert sum(clock.sleeps[1:]) == 2
+
+
+def test_list_advertisements_scan_window_excludes_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(_MODULE.asyncio, "sleep", clock.sleep)
+    monkeypatch.setattr(
+        _MODULE.asyncio,
+        "get_running_loop",
+        lambda: SimpleNamespace(time=clock.time),
+    )
+    manager = SimpleNamespace(async_current_scanners=list)
+
+    asyncio.run(_list_advertisements(_scan_config(), manager))
+
+    assert clock.sleeps[0] == 5
+    assert sum(clock.sleeps[1:]) == 2
 
 
 def test_main_reports_probe_errors(
