@@ -4,10 +4,13 @@ Unofficial asynchronous Python library for communicating with Zendure
 SolarFlow controllers over Bluetooth Low Energy.
 
 The protocol implementation is based on
-[esphome-solarflow-ble](https://github.com/krumpholz/esphome-solarflow-ble).
+[esphome-solarflow-ble](https://github.com/krumpholz/esphome-solarflow-ble) and was
+verified by reverse-engineering the Zendure app.
 The library has been tested with a SolarFlow 2400AC through a Home Assistant
 Connect AUX-2 acting as a Bluetooth proxy. Traffic probing and debugging use
 [`bleak-esphome`](https://github.com/Bluetooth-Devices/bleak-esphome).
+
+You can create your own ESPHome Bluetooth Proxy here: <https://esphome.io/projects/>
 
 All protocol credits and reverse-engineering efforts belong to the
 [esphome-solarflow-ble project](https://github.com/krumpholz/esphome-solarflow-ble).
@@ -77,8 +80,8 @@ handshake, `getInfo`, and `getAll` protocol requests.
 ```bash
 # Discover a SolarFlow device and capture its traffic.
 uv run scripts/probe_solarflow.py \
-  --proxy "192.168.1.157" \
-  --noise-psk "your-esphome-noise-psk" \
+  --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
+  --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --output /tmp/solarflow.jsonl
 ```
 
@@ -86,8 +89,8 @@ List advertisements without connecting to a SolarFlow device:
 
 ```bash
 uv run scripts/probe_solarflow.py \
-  --proxy "192.168.1.157" \
-  --noise-psk "your-esphome-noise-psk" \
+  --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
+  --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --list-advertisements \
   --scan-seconds 30
 ```
@@ -100,8 +103,8 @@ Target a specific SolarFlow device by Bluetooth address:
 
 ```bash
 uv run scripts/probe_solarflow.py \
-  --proxy "192.168.1.157" \
-  --noise-psk "your-esphome-noise-psk" \
+  --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
+  --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --address "AA:BB:CC:DD:EE:FF" \
   --scan-seconds 60 \
   --capture-seconds 30 \
@@ -113,8 +116,8 @@ identifier:
 
 ```bash
 uv run scripts/probe_solarflow.py \
-  --proxy "192.168.1.157" \
-  --noise-psk "your-esphome-noise-psk" \
+  --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
+  --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --identifier "DEVICE_IDENTIFIER" \
   --scan-seconds 60 \
   --capture-seconds 30 \
@@ -126,8 +129,8 @@ handshake or the initial `getInfo` and `getAll` requests:
 
 ```bash
 uv run scripts/probe_solarflow.py \
-  --proxy "192.168.1.157" \
-  --noise-psk "your-esphome-noise-psk" \
+  --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
+  --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --address "AA:BB:CC:DD:EE:FF" \
   --no-handshake \
   --capture-seconds 30 \
