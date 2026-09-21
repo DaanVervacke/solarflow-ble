@@ -36,6 +36,7 @@ from solarflow_ble import BleakTransport, SolarFlowClient
 
 
 async def main() -> None:
+    # Replace these values with a device discovered by your BLE adapter.
     device = BLEDevice("AA:BB:CC:DD:EE:FF", "SolarFlow", {})
     client = SolarFlowClient(BleakTransport(device))
 
@@ -59,17 +60,19 @@ application is intended to change device settings:
 
 ```python
 client = SolarFlowClient(BleakTransport(device), allow_control=True)
-await client.connect()
-await client.set_output_limit(800)
-await client.disconnect()
+try:
+    await client.connect()
+    await client.set_output_limit(800)
+finally:
+    await client.disconnect()
 ```
 
 ## Probe
 
 The developer-only probe captures SolarFlow GATT traffic through an ESPHome
 Bluetooth proxy (e.g. the Home Assistant Connect AUX-2).
-It is read-only by default and sends only the BLESPP
-handshake and `getAll` request.
+It does not send device-setting writes by default. It sends the BLESPP
+handshake, `getInfo`, and `getAll` protocol requests.
 
 ```bash
 # Discover a SolarFlow device and capture its traffic.
@@ -89,21 +92,33 @@ uv run scripts/probe_solarflow.py \
   --scan-seconds 30
 ```
 
-Target a specific SolarFlow device by Bluetooth address or advertised
-identifier:
+Target a specific SolarFlow device by Bluetooth address:
 
 ```bash
 uv run scripts/probe_solarflow.py \
   --proxy "192.168.1.157" \
   --noise-psk "your-esphome-noise-psk" \
   --address "AA:BB:CC:DD:EE:FF" \
+  --scan-seconds 60 \
+  --capture-seconds 30 \
+  --output /tmp/solarflow-target.jsonl
+```
+
+Alternatively, target a device by its SolarFlow manufacturer-advertisement
+identifier:
+
+```bash
+uv run scripts/probe_solarflow.py \
+  --proxy "192.168.1.157" \
+  --noise-psk "your-esphome-noise-psk" \
   --identifier "DEVICE_IDENTIFIER" \
   --scan-seconds 60 \
   --capture-seconds 30 \
   --output /tmp/solarflow-target.jsonl
 ```
 
-Capture advertisements and GATT traffic without sending the BLESPP handshake:
+Connect to a device and capture notifications without sending the BLESPP
+handshake or the initial `getInfo` and `getAll` requests:
 
 ```bash
 uv run scripts/probe_solarflow.py \
@@ -121,10 +136,11 @@ This project uses [uv](https://docs.astral.sh/uv/) and targets Python 3.14+.
 
 ```bash
 uv sync
-uv run pytest
-uv run ruff check .
-uv run mypy src
+uv run python -m scripts.check
 ```
+
+The development gate stops at the first failure in this order: format check,
+Ruff lint, mypy, branch-covered tests, coverage report, then package build.
 
 Run one test file or test:
 
