@@ -1,14 +1,24 @@
 # solarflow-ble
 
-Unofficial asynchronous Python library to interact with Zendure SolarFlow
-controllers over Bluetooth Low Energy.
+Unofficial asynchronous Python library for communicating with Zendure
+SolarFlow controllers over Bluetooth Low Energy.
+
+The protocol implementation is based on
+[esphome-solarflow-ble](https://github.com/krumpholz/esphome-solarflow-ble).
+The library has been tested with a SolarFlow 2400AC through a Home Assistant
+Connect AUX-2 acting as a Bluetooth proxy. Traffic probing and debugging use
+[`bleak-esphome`](https://github.com/Bluetooth-Devices/bleak-esphome).
+
+All protocol credits and reverse-engineering efforts belong to the
+[esphome-solarflow-ble project](https://github.com/krumpholz/esphome-solarflow-ble).
+This library builds on that work in Python.
 
 Requires Python >= 3.14.
 
 ## Install
 
 ```bash
-pip install solarflow-ble
+uv add solarflow-ble
 ```
 
 ## Usage
@@ -57,22 +67,52 @@ await client.disconnect()
 ## Probe
 
 The developer-only probe captures SolarFlow GATT traffic through an ESPHome
-Bluetooth proxy. It is read-only by default and sends only the BLESPP
+Bluetooth proxy (e.g. the Home Assistant Connect AUX-2).
+It is read-only by default and sends only the BLESPP
 handshake and `getAll` request.
 
 ```bash
-export SOLARFLOW_PROXY=proxy.example.local
-export SOLARFLOW_NOISE_PSK="..."
-uv run solarflow-ble-probe --output /tmp/solarflow.jsonl
+# Discover a SolarFlow device and capture its traffic.
+uv run scripts/probe_solarflow.py \
+  --proxy "192.168.1.157" \
+  --noise-psk "your-esphome-noise-psk" \
+  --output /tmp/solarflow.jsonl
 ```
 
-Optional target filters:
+List advertisements without connecting to a SolarFlow device:
 
 ```bash
-uv run solarflow-ble-probe \
-  --address AA:BB:CC:DD:EE:FF \
-  --identifier DEVICE_IDENTIFIER \
-  --output /tmp/solarflow.jsonl
+uv run scripts/probe_solarflow.py \
+  --proxy "192.168.1.157" \
+  --noise-psk "your-esphome-noise-psk" \
+  --list-advertisements \
+  --scan-seconds 30
+```
+
+Target a specific SolarFlow device by Bluetooth address or advertised
+identifier:
+
+```bash
+uv run scripts/probe_solarflow.py \
+  --proxy "192.168.1.157" \
+  --noise-psk "your-esphome-noise-psk" \
+  --address "AA:BB:CC:DD:EE:FF" \
+  --identifier "DEVICE_IDENTIFIER" \
+  --scan-seconds 60 \
+  --capture-seconds 30 \
+  --output /tmp/solarflow-target.jsonl
+```
+
+Capture advertisements and GATT traffic without sending the BLESPP handshake:
+
+```bash
+uv run scripts/probe_solarflow.py \
+  --proxy "192.168.1.157" \
+  --noise-psk "your-esphome-noise-psk" \
+  --address "AA:BB:CC:DD:EE:FF" \
+  --no-handshake \
+  --capture-seconds 30 \
+  --output /tmp/solarflow-passive.jsonl
 ```
 
 ## Development
@@ -92,3 +132,7 @@ Run one test file or test:
 uv run pytest tests/test_solarflow.py
 uv run pytest tests/test_solarflow.py -k connect_handshake
 ```
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
