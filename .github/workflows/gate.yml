@@ -29,7 +29,7 @@ jobs:
       # SHA-pinned: setup-uv has no moving @v8 tag (dropped as of v8.0.0);
       # Dependabot bumps the SHA via the trailing version comment.
       # No version input: setup-uv reads [tool.uv] required-version from
-      # pyproject.toml (tests/test_packaging.py keeps it aligned with uv_build).
+      # pyproject.toml, which pins the uv CLI to the uv_build compatibility range.
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
