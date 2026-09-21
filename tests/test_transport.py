@@ -96,6 +96,7 @@ async def test_disconnect_cancels_and_awaits_blocked_notification_callbacks() ->
         try:
             await asyncio.Future[None]()
         except asyncio.CancelledError:
+            assert transport._client is client
             order.append("callback-cancelled")
             cancelled.set()
             raise
@@ -110,6 +111,7 @@ async def test_disconnect_cancels_and_awaits_blocked_notification_callbacks() ->
     await transport.disconnect()
 
     assert cancelled.is_set()
-    assert order == ["client-disconnected", "callback-cancelled"]
+    assert order == ["callback-cancelled", "client-disconnected"]
+    assert transport._client is None
     assert not transport._notification_tasks
     await transport.disconnect()

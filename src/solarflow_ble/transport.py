@@ -31,6 +31,7 @@ class BleakTransport(BleTransport):
         self._client_factory = client_factory
         self._client: BleakClient | None = None
         self._notification_tasks: set[asyncio.Task[None]] = set()
+        self._accept_notifications = True
 
     @property
     def client(self) -> BleakClient:
@@ -39,17 +40,21 @@ class BleakTransport(BleTransport):
         return self._client
 
     async def connect(self) -> None:
+        self._accept_notifications = True
         if self._client is None:
             self._client = self._client_factory(self.device, timeout=self.timeout)
         if not self._client.is_connected:
             await self._client.connect()
 
     async def disconnect(self) -> None:
-        client = self._client
-        self._client = None
-        if client is not None:
-            await client.disconnect()
+        self._accept_notifications = False
         await self._cancel_notification_tasks()
+        client = self._client
+        try:
+            if client is not None:
+                await client.disconnect()
+        finally:
+            self._client = None
 
     async def start_notify(
         self, characteristic: str, callback: NotificationCallback
@@ -57,6 +62,8 @@ class BleakTransport(BleTransport):
         def on_notification(
             gatt_characteristic: BleakGATTCharacteristic, payload: bytearray
         ) -> None:
+            if not self._accept_notifications:
+                return
             result = callback(gatt_characteristic.uuid, bytes(payload))
             if isinstance(result, Awaitable):
                 task = asyncio.ensure_future(result)
