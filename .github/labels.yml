@@ -1,0 +1,21 @@
+- name: breaking-change
+  color: b60205
+  description: A change that breaks existing behaviour
+- name: new-feature
+  color: 0e8a16
+  description: A new capability
+- name: enhancement
+  color: 1d76db
+  description: An improvement to existing behaviour
+- name: bugfix
+  color: d73a4a
+  description: A fix for a defect
+- name: maintenance
+  color: fbca04
+  description: Refactoring, tooling, or housekeeping
+- name: documentation
+  color: 006b75
+  description: Documentation only
+- name: dependencies
+  color: 5319e7
+  description: Dependency updates
