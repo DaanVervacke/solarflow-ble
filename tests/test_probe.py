@@ -1,6 +1,7 @@
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -106,7 +107,7 @@ def test_redact_capture_handles_nested_values() -> None:
 def test_main_reports_probe_errors(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    async def fail(_config: ProbeConfig) -> None:
+    async def fail(_config: Any) -> None:
         raise TimeoutError("SolarFlow device was not found through the proxy")
 
     monkeypatch.setattr(_MODULE, "run_probe", fail)
