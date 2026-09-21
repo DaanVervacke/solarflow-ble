@@ -72,6 +72,8 @@ class SolarFlowClient:
         self.state = SolarFlowState()
         self.status = ConnectionStatus.DISCONNECTED
         self._lock = asyncio.Lock()
+        self._lifecycle_lock = asyncio.Lock()
+        self._target_device_id = device_id
         self._reports: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._write_results: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._keepalive_task: asyncio.Task[None] | None = None
@@ -90,45 +92,53 @@ class SolarFlowClient:
         return self.status is ConnectionStatus.READY
 
     async def connect(self) -> None:
-        try:
-            await self.transport.connect()
-            self.status = ConnectionStatus.CONNECTED
-            await self.transport.start_notify(
-                NOTIFY_CHARACTERISTIC_UUID, self._notification
-            )
-            ble_spp = await self._wait_for_method("BLESPP")
-            self._establish_identity(ble_spp)
-            await self._write({"messageId": 1009, "method": "BLESPP_OK"})
-            await asyncio.sleep(self.ble_spp_delay)
-            timestamp = int(time.time() * 1000)
-            await self._write(
-                {
-                    "deviceId": self._require_device_id(),
-                    "messageId": self._next_message_id(),
-                    "method": "getInfo",
-                    "timestamp": timestamp,
-                }
-            )
-            await self._wait_for_method("getInfo-rsp")
-            self.status = ConnectionStatus.PROTOCOL_READY
-            await asyncio.sleep(self.initial_read_delay)
-            await self._write(
-                {
-                    "deviceId": self._require_device_id(),
-                    "messageId": self._next_message_id(),
-                    "timestamp": int(time.time() * 1000),
-                    "properties": ["getAll"],
-                    "method": "read",
-                }
-            )
-            await self._wait_for_initial_reports()
-            self._refresh_status()
-            self._keepalive_task = asyncio.create_task(self._keepalive())
-        except BaseException:
-            await self.disconnect()
-            raise
+        async with self._lifecycle_lock:
+            if self.connected:
+                return
+            self._reset_session()
+            try:
+                await self.transport.connect()
+                self.status = ConnectionStatus.CONNECTED
+                await self.transport.start_notify(
+                    NOTIFY_CHARACTERISTIC_UUID, self._notification
+                )
+                ble_spp = await self._wait_for_method("BLESPP")
+                self._establish_identity(ble_spp)
+                await self._write({"messageId": 1009, "method": "BLESPP_OK"})
+                await asyncio.sleep(self.ble_spp_delay)
+                timestamp = int(time.time() * 1000)
+                await self._write(
+                    {
+                        "deviceId": self._require_device_id(),
+                        "messageId": self._next_message_id(),
+                        "method": "getInfo",
+                        "timestamp": timestamp,
+                    }
+                )
+                await self._wait_for_method("getInfo-rsp")
+                self.status = ConnectionStatus.PROTOCOL_READY
+                await asyncio.sleep(self.initial_read_delay)
+                await self._write(
+                    {
+                        "deviceId": self._require_device_id(),
+                        "messageId": self._next_message_id(),
+                        "timestamp": int(time.time() * 1000),
+                        "properties": ["getAll"],
+                        "method": "read",
+                    }
+                )
+                await self._wait_for_initial_reports()
+                self._refresh_status()
+                self._keepalive_task = asyncio.create_task(self._keepalive())
+            except BaseException:
+                await self._disconnect_locked()
+                raise
 
     async def disconnect(self) -> None:
+        async with self._lifecycle_lock:
+            await self._disconnect_locked()
+
+    async def _disconnect_locked(self) -> None:
         if self._keepalive_task:
             self._keepalive_task.cancel()
             await asyncio.gather(self._keepalive_task, return_exceptions=True)
@@ -138,11 +148,19 @@ class SolarFlowClient:
         with suppress(Exception):
             await self.transport.disconnect()
         self.status = ConnectionStatus.DISCONNECTED
+        self._reset_session()
+
+    def _reset_session(self) -> None:
+        self._reports = asyncio.Queue()
+        self._write_results = asyncio.Queue()
+        self.state = SolarFlowState()
+        self.device_id = self._target_device_id
 
     async def _notification(self, _characteristic: str, payload: bytes) -> None:
         message = decode_json(payload)
         method = message.get("method")
-        self._validate_message_identity(message)
+        if method != "BLESPP":
+            self._validate_message_identity(message)
         if method == "BLESPP":
             await self._reports.put(message)
             return
@@ -189,7 +207,7 @@ class SolarFlowClient:
         device_id = message.get("deviceId")
         if not isinstance(device_id, str) or not device_id:
             raise SolarFlowProtocolError("BLESPP did not include deviceId")
-        if self.device_id is not None and self.device_id != device_id:
+        if self._target_device_id is not None and self._target_device_id != device_id:
             raise SolarFlowProtocolError(
                 "BLESPP deviceId does not match the requested device"
             )
