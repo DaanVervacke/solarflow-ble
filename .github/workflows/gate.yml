@@ -47,4 +47,4 @@ jobs:
       - name: Build and verify wheel
         run: |
           uv build
-          python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; names = zipfile.ZipFile(w).namelist(); sys.exit(0 if 'aioengiebelgium/py.typed' in names else 'py.typed missing from wheel: ' + w)"
+          python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; names = zipfile.ZipFile(w).namelist(); sys.exit(0 if 'solarflow_ble/py.typed' in names else 'py.typed missing from wheel: ' + w)"
