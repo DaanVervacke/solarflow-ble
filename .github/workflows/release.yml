@@ -40,8 +40,8 @@ jobs:
       - name: Guard built version matches tag
         run: |
           tag="${RELEASE_TAG#v}"
-          wheel=$(ls dist/aioengiebelgium-*.whl | head -1)
-          built=$(basename "$wheel" | sed -E 's/^aioengiebelgium-([^-]+)-.*/\1/')
+          wheel=$(ls dist/solarflow_ble-*.whl | head -1)
+          built=$(basename "$wheel" | sed -E 's/^solarflow_ble-([^-]+)-.*/\1/')
           echo "tag=$tag built=$built"
           test "$tag" = "$built"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -61,7 +61,7 @@ jobs:
           name: dist
           path: dist/
 
-      # Trusted Publishing: the `aioengiebelgium` project on PyPI must be
+      # Trusted Publishing: the `solarflow-ble` project on PyPI must be
       # configured (once, manually) to trust this repo + workflow + environment.
       # skip-existing: an accidental re-tag of a published version no-ops
       # instead of failing the job on PyPI's duplicate-file rejection.
