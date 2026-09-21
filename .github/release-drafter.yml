@@ -1,0 +1,30 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+categories:
+  - title: Breaking changes
+    labels: [breaking-change]
+  - title: New features
+    labels: [new-feature]
+  - title: Bug fixes
+    labels: [bugfix]
+  - title: Enhancements
+    labels: [enhancement]
+  - title: Maintenance
+    labels: [maintenance]
+  - title: Documentation
+    labels: [documentation]
+  - title: Dependency updates
+    labels: [dependencies]
+    collapse-after: 5
+version-resolver:
+  major:
+    labels: [breaking-change]
+  minor:
+    labels: [new-feature]
+  patch:
+    labels: [bugfix, enhancement, maintenance, documentation, dependencies]
+  default: patch
+template: |
+  ## Changes
+
+  $CHANGES
