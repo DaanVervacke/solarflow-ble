@@ -1,22 +1,11 @@
 # solarflow-ble
 
-Unofficial asynchronous Python library for communicating with Zendure
-SolarFlow controllers over Bluetooth Low Energy.
+Async Python library for Zendure SolarFlow devices over Bluetooth Low Energy.
+The protocol work builds on [esphome-solarflow-ble](https://github.com/krumpholz/esphome-solarflow-ble)
+and reverse engineering of the Zendure Android app.
 
-The protocol implementation is based on
-[esphome-solarflow-ble](https://github.com/krumpholz/esphome-solarflow-ble) and was
-verified by reverse-engineering the Zendure app.
 The library has been tested with a SolarFlow 2400AC through a Home Assistant
-Connect AUX-2 acting as a Bluetooth proxy. Traffic probing and debugging use
-[`bleak-esphome`](https://github.com/Bluetooth-Devices/bleak-esphome).
-
-You can create your own ESPHome Bluetooth Proxy here: <https://esphome.io/projects/>
-
-All protocol credits and reverse-engineering efforts belong to the
-[esphome-solarflow-ble project](https://github.com/krumpholz/esphome-solarflow-ble).
-This library builds on that work in Python.
-
-Requires Python >= 3.14.
+Connect AUX-2 Bluetooth proxy. It requires Python 3.14 or newer.
 
 ## Install
 
@@ -24,11 +13,10 @@ Requires Python >= 3.14.
 uv add solarflow-ble
 ```
 
-## Usage
+## Library usage
 
-`SolarFlowClient` uses an injected transport, so applications can choose their
-own Bluetooth adapter and tests can use a fake transport without Bluetooth
-hardware.
+`SolarFlowClient` accepts an injected `BleTransport`. Tests can use a fake
+transport without Bluetooth hardware.
 
 ```python
 import asyncio
@@ -39,14 +27,12 @@ from solarflow_ble import BleakTransport, SolarFlowClient
 
 
 async def main() -> None:
-    # Replace these values with a device discovered by your BLE adapter.
     device = BLEDevice("AA:BB:CC:DD:EE:FF", "SolarFlow", {})
     client = SolarFlowClient(BleakTransport(device))
-
     try:
         await client.connect()
+        print(client.device_id)
         print(client.state)
-        print(client.status)
     finally:
         await client.disconnect()
 
@@ -54,170 +40,104 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The client connects, completes the BLESPP handshake, sends a `read` request for
-`getAll`, and keeps the session updated. Always call `disconnect()` when the
-session ends.
+The client waits for `BLESPP`, sends `BLESPP_OK`, requests `getInfo`, then
+sends a `read` request for `getAll`. It keeps the session updated with report
+messages. Always disconnect the client.
 
-Control methods are disabled by default. Enable them explicitly when the
-application is intended to change device settings:
+Control methods are disabled unless `allow_control=True`. Validated ranges are:
 
-```python
-client = SolarFlowClient(BleakTransport(device), allow_control=True)
-try:
-    await client.connect()
-    await client.set_output_limit(800)
-finally:
-    await client.disconnect()
-```
+- input and output limits: `0..2400 W`
+- minimum SOC: `0..50%`
+- target SOC: `70..100%`
+- AC mode: `1` or `2`
 
 ## Probe
 
-The developer-only probe captures SolarFlow GATT traffic through an ESPHome
-Bluetooth proxy (e.g. the Home Assistant Connect AUX-2). It never sends
-device-setting writes. It sends the BLESPP handshake, `getInfo`, and a `read`
-request for `getAll`.
+The developer-only probe captures raw GATT traffic through an ESPHome
+Bluetooth proxy. It never sends device-setting writes.
 
-```bash
-# Discover a SolarFlow device and capture its traffic.
-uv run scripts/probe_solarflow.py \
-  --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
-  --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
-  --output /tmp/solarflow.jsonl
-```
-
-List advertisements without connecting to a SolarFlow device:
+List advertisements:
 
 ```bash
 uv run scripts/probe_solarflow.py \
   --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
   --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --list-advertisements \
-  --scan-seconds 30
+  --show-identities
 ```
 
-Advertisement addresses and parsed SolarFlow identifiers are redacted by
-default. Add `--show-identities` to reveal them while discovering targets;
-known values can still be passed directly with `--address` or `--identifier`.
-Capture files remain redacted.
-
-Target a specific SolarFlow device by Bluetooth address:
-
-```bash
-uv run scripts/probe_solarflow.py \
-  --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
-  --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
-  --address "AA:BB:CC:DD:EE:FF" \
-  --scan-seconds 60 \
-  --capture-seconds 30 \
-  --output /tmp/solarflow-target.jsonl
-```
-
-Alternatively, target a device by its SolarFlow manufacturer-advertisement
-identifier:
+Capture a target by address or SolarFlow advertisement identifier:
 
 ```bash
 uv run scripts/probe_solarflow.py \
   --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
   --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --identifier "DEVICE_IDENTIFIER" \
-  --scan-seconds 60 \
   --capture-seconds 30 \
-  --output /tmp/solarflow-target.jsonl
+  --output /tmp/solarflow.jsonl
 ```
 
-Connect to a device and capture notifications without sending the BLESPP
-handshake or the initial `getInfo` and `read`/`getAll` requests:
+Use `--no-handshake` for passive notification capture. Addresses, identifiers,
+device IDs, product keys, pack serials, and credentials are redacted from
+capture files. `--show-identities` affects logs only.
+
+The probe uses the same `SolarFlowClient` protocol flow as the library in
+normal mode. Passive mode connects directly to the notification characteristic
+without sending protocol writes.
+
+## Standalone library test
+
+`scripts/test_solarflow_client.py` exercises the library directly. It does not
+use the probe script. The default run is read-only and requires exactly one of
+`--address` or `--identifier`.
 
 ```bash
-uv run scripts/probe_solarflow.py \
+uv run scripts/test_solarflow_client.py \
   --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
   --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
-  --address "AA:BB:CC:DD:EE:FF" \
-  --no-handshake \
-  --capture-seconds 30 \
-  --output /tmp/solarflow-passive.jsonl
+  --identifier "DEVICE_IDENTIFIER" \
+  --duration 30 \
+  --output /tmp/solarflow-library-test.jsonl
 ```
 
+You can put the connection settings in the ignored file
+`scripts/test_solarflow_client.local.json`:
+
+```json
+{
+  "proxy": "the-ip-of-your-esphome-bluetooth-proxy",
+  "noise_psk": "the-encryption-key-of-your-esphome-bluetooth-proxy",
+  "identifier": "DEVICE_IDENTIFIER"
+}
+```
+
+Then run:
+
+```bash
+uv run scripts/test_solarflow_client.py --duration 30
+```
+
+The script prints decoded updates to stdout and always redacts optional JSONL
+output. Controls require both `--controls` and `--confirm-controls`. Never
+commit the local config or a real PSK.
+
 ## Development
-
-This project uses [uv](https://docs.astral.sh/uv/) and targets Python 3.14+.
-
-The library only requires an injected `BleTransport`. The developer scripts
-add ESPHome proxy discovery and lifecycle management around that transport.
 
 ```bash
 uv sync
 uv run python -m scripts.check
 ```
 
-The development gate stops at the first failure in this order: format check,
-Ruff lint, mypy, branch-covered tests, coverage report, then package build.
-
-Run one test file or test:
+Run focused tests:
 
 ```bash
 uv run pytest tests/test_solarflow.py
-uv run pytest tests/test_solarflow.py -k connect_handshake
+uv run pytest tests/test_solarflow_client_script.py
 ```
 
-### Standalone library client test
-
-Use the standalone diagnostic to exercise `SolarFlowClient` through an
-ESPHome Bluetooth proxy. It discovers exactly one target by address or
-SolarFlow advertisement identifier. Exactly one of `--address` or
-`--identifier` is required, and the diagnostic is read-only unless controls
-are explicitly confirmed.
-
-```bash
-uv run scripts/test_solarflow_client.py \
-  --proxy "192.168.1.157" \
-  --noise-psk "your-esphome-noise-psk" \
-  --identifier "DEVICE_IDENTIFIER" \
-  --duration 30 \
-  --output /tmp/solarflow-library-test.jsonl
-```
-
-The script prints device identities and decoded state to stdout for local
-diagnostics. The optional JSONL file is always recursively redacted. Controls
-require both `--controls` and `--confirm-controls`; they also require explicit
-`--min-soc` and `--soc` values because those original wire values are not
-available safely for restoration. Accepted control ranges are input/output
-limits `0..2400 W`, minimum SOC `0..50%`, target SOC `70..100%`, and AC mode
-`1` or `2`.
-
-The connection settings can be kept in the ignored local config file
-`scripts/test_solarflow_client.local.json`. The file may contain `proxy`,
-`noise_psk`, and exactly one of `address` or `identifier`:
-
-```json
-{
-  "proxy": "192.168.1.157",
-  "noise_psk": "your-esphome-noise-psk",
-  "identifier": "DEVICE_IDENTIFIER"
-}
-```
-
-Run the diagnostic with the default local file:
-
-```bash
-uv run scripts/test_solarflow_client.py --duration 30
-```
-
-Use `--config path/to/config.json` for another local file. Command-line values
-override values from the config file, so individual settings can be replaced
-without editing it:
-
-```bash
-uv run scripts/test_solarflow_client.py \
-  --config scripts/test_solarflow_client.local.json \
-  --identifier "OTHER_DEVICE_IDENTIFIER"
-```
-
-Do not commit this file or paste a real `noise_psk` into documentation,
-fixtures, logs, or shell history. The default local filename is ignored by
-Git; use a file with equivalent local-only handling when choosing another
-config path. The script never prints or writes `noise_psk`.
+The full gate runs format, Ruff, mypy, branch-covered tests, coverage, and
+`uv build` in that order.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
