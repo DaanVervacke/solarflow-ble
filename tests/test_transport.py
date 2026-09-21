@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -27,6 +27,30 @@ async def test_bleak_transport_connects_and_writes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_connect_uses_retry_connector() -> None:
+    client = MagicMock()
+    client.is_connected = True
+    device = MagicMock()
+    device.name = "SolarFlow"
+    device.address = "AA:BB:CC:DD:EE:FF"
+    client_factory = MagicMock(return_value=client)
+    transport = BleakTransport(device, timeout=12.5, client_factory=client_factory)
+
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ) as retry_connector:
+        await transport.connect()
+
+    retry_connector.assert_awaited_once_with(
+        client_factory,
+        device,
+        "SolarFlow",
+        timeout=12.5,
+    )
+
+
+@pytest.mark.asyncio
 async def test_notification_async_callback_is_delivered() -> None:
     client = MagicMock()
     client.is_connected = True
@@ -41,7 +65,11 @@ async def test_notification_async_callback_is_delivered() -> None:
         assert payload == b"payload"
         delivered.set()
 
-    await transport.connect()
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ):
+        await transport.connect()
     await transport.start_notify("char", callback)
     registered_callback = client.start_notify.call_args.args[1]
     registered_callback(MagicMock(uuid="char"), bytearray(b"payload"))
@@ -65,7 +93,11 @@ async def test_notification_callback_failure_is_observed(
     async def callback(_characteristic: str, _payload: bytes) -> None:
         raise RuntimeError("callback failed")
 
-    await transport.connect()
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ):
+        await transport.connect()
     await transport.start_notify("char", callback)
     registered_callback = client.start_notify.call_args.args[1]
     with caplog.at_level(logging.ERROR):
@@ -102,7 +134,11 @@ async def test_disconnect_cancels_and_awaits_blocked_notification_callbacks() ->
             raise
 
     client.disconnect.side_effect = lambda: order.append("client-disconnected")
-    await transport.connect()
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ):
+        await transport.connect()
     await transport.start_notify("char", callback)
     registered_callback = client.start_notify.call_args.args[1]
     registered_callback(MagicMock(uuid="char"), bytearray())

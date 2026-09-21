@@ -6,10 +6,12 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
+from typing import cast
 
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import establish_connection
 
 from .client import BleTransport, NotificationCallback
 
@@ -41,10 +43,13 @@ class BleakTransport(BleTransport):
 
     async def connect(self) -> None:
         self._accept_notifications = True
-        if self._client is None:
-            self._client = self._client_factory(self.device, timeout=self.timeout)
-        if not self._client.is_connected:
-            await self._client.connect()
+        if self._client is None or not self._client.is_connected:
+            self._client = await establish_connection(
+                cast(type[BleakClient], self._client_factory),
+                self.device,
+                self.device.name or self.device.address,
+                timeout=self.timeout,
+            )
 
     async def disconnect(self) -> None:
         self._accept_notifications = False
