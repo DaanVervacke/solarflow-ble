@@ -1,0 +1,50 @@
+name: Gate
+
+on:
+  workflow_call:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        resolution: [highest, lowest-direct]
+
+    env:
+      # uv >=0.11.7 derives the expected lock resolution from configuration, not
+      # from the lockfile; pin the whole job to the matrix leg's mode.
+      UV_RESOLUTION: ${{ matrix.resolution }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: ".python-version"
+
+      # SHA-pinned: setup-uv has no moving @v8 tag (dropped as of v8.0.0);
+      # Dependabot bumps the SHA via the trailing version comment.
+      # No version input: setup-uv reads [tool.uv] required-version from
+      # pyproject.toml (tests/test_packaging.py keeps it aligned with uv_build).
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: |
+          if [ "${{ matrix.resolution }}" = "lowest-direct" ]; then
+            uv lock
+          fi
+          uv sync --locked --all-groups
+
+      - name: Run check gate
+        run: uv run python -m scripts.check
+
+      - name: Build and verify wheel
+        run: |
+          uv build
+          python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; names = zipfile.ZipFile(w).namelist(); sys.exit(0 if 'aioengiebelgium/py.typed' in names else 'py.typed missing from wheel: ' + w)"
