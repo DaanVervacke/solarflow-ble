@@ -27,7 +27,6 @@ from habluetooth import (
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
 )
-
 from solarflow_ble import BleakTransport, SolarFlowClient
 from solarflow_ble.client import BleTransport, NotificationCallback
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
