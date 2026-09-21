@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from solarflow_ble import SolarFlowClient, SolarFlowState, parse_advertisement
 from solarflow_ble.client import NotificationCallback
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
