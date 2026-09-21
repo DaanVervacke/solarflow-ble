@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
@@ -26,6 +27,7 @@ plan_controls = _MODULE.plan_controls
 redact_value = _MODULE.redact_value
 serialize_pack = _MODULE.serialize_pack
 serialize_state = _MODULE.serialize_state
+JsonlWriter = _MODULE.JsonlWriter
 
 
 def test_parser_requires_exactly_one_target(
@@ -249,7 +251,156 @@ def test_update_formatting_has_concise_and_verbose_modes() -> None:
     assert "method=report" in concise
     assert "packs=1" in concise
     assert '"raw"' in verbose
-    assert "DEVICE-1" in verbose
+    assert "DEVICE-1" not in verbose
+    assert '"deviceId": "DEVICE_ID"' in verbose
+    assert "PACK-1" not in verbose
+    assert '"serial_number": "PACK_SERIAL"' in verbose
+
+
+def test_jsonl_writer_redacts_serialized_update(tmp_path: Path) -> None:
+    update = SolarFlowUpdate(
+        replace(
+            SolarFlowState(
+                device_id="secret-device",
+                product_key="secret-product",
+                packs=(BatteryPack("secret-pack"),),
+            )
+        ),
+        ConnectionStatus.READY,
+        {
+            "method": "report",
+            "deviceId": "secret-device",
+            "productKey": "secret-product",
+            "credentials": {"token": "secret-token"},
+        },
+    )
+    path = tmp_path / "updates.jsonl"
+    writer = JsonlWriter(path)
+    writer.write(_MODULE.serialize_update(update))
+    writer.close()
+
+    content = path.read_text()
+    assert "secret-device" not in content
+    assert "secret-product" not in content
+    assert "secret-pack" not in content
+    assert "secret-token" not in content
+    record = json.loads(content)
+    assert record["state"]["input_limit"] is None
+    assert record["state"]["device_id"] == "DEVICE_ID"
+    assert record["packs"][0]["serial_number"] == "PACK_SERIAL"
+
+
+@pytest.mark.asyncio
+async def test_run_redacts_summary_state_updates_and_jsonl(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state = SolarFlowState(
+        device_id="secret-device",
+        product_key="secret-product",
+        packs=(BatteryPack("secret-pack"),),
+    )
+    update = SolarFlowUpdate(
+        state,
+        ConnectionStatus.READY,
+        {
+            "method": "report",
+            "deviceId": "secret-device",
+            "productKey": "secret-product",
+            "credentials": {"token": "secret-token"},
+        },
+    )
+
+    class FakeManager:
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+    class FakeBluetoothManager:
+        async def async_setup(self) -> None:
+            pass
+
+        def async_current_scanners(self) -> list[object]:
+            return []
+
+        def async_stop(self) -> None:
+            pass
+
+    class FakeTransport:
+        def __init__(self, _device: object) -> None:
+            pass
+
+    class FakeClient:
+        device_id = "secret-device"
+        status = ConnectionStatus.READY
+        protocol_ready = True
+        ready = True
+
+        def __init__(
+            self, _transport: object, update_callback: object, **_kwargs: object
+        ) -> None:
+            self.state = state
+            self._update_callback = update_callback
+
+        async def connect(self) -> None:
+            callback = self._update_callback
+            assert callable(callback)
+            result = callback(update)
+            if asyncio.iscoroutine(result):
+                await result
+
+        async def disconnect(self) -> None:
+            pass
+
+    monkeypatch.setattr(_MODULE, "APIConnectionManager", lambda _config: FakeManager())
+    monkeypatch.setattr(_MODULE, "DiagnosticBluetoothManager", FakeBluetoothManager)
+    monkeypatch.setattr(_MODULE, "BleakTransport", FakeTransport)
+    monkeypatch.setattr(_MODULE, "SolarFlowClient", FakeClient)
+    monkeypatch.setattr(
+        _MODULE,
+        "find_device",
+        lambda *_args, **_kwargs: _async_result(
+            (SimpleNamespace(address="secret-address", name="secret-name"), "secret-id")
+        ),
+    )
+    monkeypatch.setattr(_MODULE.asyncio, "sleep", _async_sleep)
+
+    args = SimpleNamespace(
+        output=tmp_path / "updates.jsonl",
+        proxy="proxy.local",
+        noise_psk="secret-psk",
+        address=None,
+        identifier="secret-id",
+        duration=0,
+        verbose=True,
+        controls=False,
+    )
+    await _MODULE.run(args)
+
+    stdout = capsys.readouterr().out
+    assert "secret-device" not in stdout
+    assert "secret-product" not in stdout
+    assert "secret-pack" not in stdout
+    assert "secret-token" not in stdout
+    assert "secret-address" not in stdout
+    assert "secret-name" not in stdout
+    assert "secret-id" not in stdout
+    assert "DEVICE_ID" in stdout
+    assert "PACK_SERIAL" in stdout
+    persisted = (tmp_path / "updates.jsonl").read_text()
+    assert "secret-device" not in persisted
+    assert "secret-product" not in persisted
+    assert "secret-pack" not in persisted
+    assert "secret-token" not in persisted
+
+
+async def _async_result(value: object) -> object:
+    return value
+
+
+async def _async_sleep(_seconds: float) -> None:
+    pass
 
 
 def test_find_device_warms_up_before_discovery_deadline(

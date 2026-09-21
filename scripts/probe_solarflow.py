@@ -72,6 +72,7 @@ class CaptureWriter:
         self._file = path.open("a", encoding="utf-8") if path else None
 
     def write(self, direction: str, payload: bytes, **extra: Any) -> None:
+        payload_length = len(payload)
         text = payload.decode("utf-8", errors="replace")
         try:
             decoded = _redact_capture(json.loads(text))
@@ -81,14 +82,17 @@ class CaptureWriter:
             text = payload.decode("utf-8")
         except json.JSONDecodeError:
             decoded = None
-            text = payload.decode("utf-8", errors="replace")
+            text = "[binary payload redacted]"
+            payload = b"[binary payload redacted]"
+        safe_hex = payload.hex() if decoded is not None else "[binary payload redacted]"
         extra = _redact_capture(extra)
         record = {
             "time": time.time(),
             "direction": direction,
-            "hex": payload.hex(),
+            "hex": safe_hex,
             "text": text,
             "json": decoded,
+            "payload_length": payload_length,
             **extra,
         }
         _LOGGER.info("%s %s", direction, record)

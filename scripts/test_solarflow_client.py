@@ -46,6 +46,7 @@ _REDACTED_KEYS = {
     "deviceid": "DEVICE_ID",
     "identifier": "DEVICE_IDENTIFIER",
     "noisepsk": "REDACTED",
+    "name": "DEVICE_NAME",
     "packserial": "PACK_SERIAL",
     "password": "REDACTED",
     "productkey": "PRODUCT_KEY",
@@ -168,7 +169,7 @@ def serialize_update(update: SolarFlowUpdate) -> dict[str, Any]:
 
 def format_update(update: SolarFlowUpdate, *, verbose: bool = False) -> str:
     """Format a callback update for local stdout diagnostics."""
-    record = serialize_update(update)
+    record = redact_value(serialize_update(update))
     if verbose:
         return json.dumps(record, sort_keys=True, default=str)
     state = update.state
@@ -474,14 +475,30 @@ async def run(args: argparse.Namespace) -> None:
         await client.connect()
         if not client.protocol_ready:
             raise RuntimeError("SolarFlow protocol did not become ready")
+        connection = redact_value(
+            {
+                "address": device.address,
+                "name": device.name,
+                "identifier": discovered_identifier or args.identifier,
+                "device_id": client.device_id,
+                "status": client.status.value,
+                "ready": client.ready,
+            }
+        )
         _stdout(
             "CONNECTED "
-            f"address={device.address} name={device.name!r} "
-            f"identifier={discovered_identifier or args.identifier} "
-            f"device_id={client.device_id} status={client.status.value} "
-            f"ready={client.ready}"
+            f"address={connection['address']} name={connection['name']!r} "
+            f"identifier={connection['identifier']} "
+            f"device_id={connection['device_id']} "
+            f"status={connection['status']} ready={connection['ready']}"
         )
-        _stdout(json.dumps(serialize_state(client.state), sort_keys=True, default=str))
+        _stdout(
+            json.dumps(
+                redact_value(serialize_state(client.state)),
+                sort_keys=True,
+                default=str,
+            )
+        )
         if args.controls:
             await run_controls(client, args)
         await asyncio.sleep(args.duration)
