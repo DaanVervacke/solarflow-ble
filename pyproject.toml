@@ -17,6 +17,9 @@ dependencies = [
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.uv]
+required-version = ">=0.12.5,<0.13.0"
+
 [dependency-groups]
 dev = [
     "coverage[toml]>=7.15.2",
