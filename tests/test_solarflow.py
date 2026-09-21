@@ -267,6 +267,77 @@ class PreHandshakeTimeoutTransport(FailingTransport):
         self.callback = callback
 
 
+class LifecycleTransport(FakeTransport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.connect_calls = 0
+        self.start_notify_calls = 0
+        self.connect_started = asyncio.Event()
+        self.connect_gate = asyncio.Event()
+
+    async def connect(self) -> None:
+        self.connect_calls += 1
+        self.connect_started.set()
+        await self.connect_gate.wait()
+
+    async def start_notify(
+        self,
+        characteristic: str,
+        callback: NotificationCallback,
+    ) -> None:
+        self.start_notify_calls += 1
+        await super().start_notify(characteristic, callback)
+
+
+class SessionTransport(FakeTransport):
+    def __init__(self, sessions: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.sessions = sessions
+        self.session_index = -1
+        self.connect_calls = 0
+
+    async def connect(self) -> None:
+        self.connect_calls += 1
+        self.session_index += 1
+
+    async def start_notify(
+        self,
+        characteristic: str,
+        callback: NotificationCallback,
+    ) -> None:
+        assert characteristic == NOTIFY_CHARACTERISTIC_UUID
+        self.callback = callback
+        session = self.sessions[self.session_index]
+        await self._emit(
+            callback,
+            json.dumps({"method": "BLESPP", "deviceId": session["device_id"]}).encode(),
+        )
+
+    async def write_gatt_char(
+        self, characteristic: str, data: bytes, response: bool = False
+    ) -> None:
+        self.writes.append(data)
+        message = json.loads(data)
+        session = self.sessions[self.session_index]
+        callback = self.callback
+        assert callback is not None
+        if message["method"] == "getInfo":
+            if not session.get("fail_get_info", False):
+                await self._emit(callback, b'{"method":"getInfo-rsp"}')
+        elif message["method"] == "read":
+            await self._emit(callback, b'{"method":"read_reply"}')
+            await self._emit(
+                callback,
+                json.dumps(
+                    {
+                        "method": "report",
+                        "properties": {"smartMode": session["smart_mode"]},
+                        "packData": [{"sn": session["pack_serial"]}],
+                    }
+                ).encode(),
+            )
+
+
 @pytest.mark.asyncio
 async def test_connect_failure_cleans_up_after_get_info_timeout() -> None:
     transport = FailingTransport("getInfo")
@@ -280,6 +351,116 @@ async def test_connect_failure_cleans_up_after_get_info_timeout() -> None:
     assert not client.connected
     assert transport.stop_notify_calls == 1
     assert transport.disconnect_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_connect_calls_share_one_session() -> None:
+    transport = LifecycleTransport()
+    client = SolarFlowClient(
+        transport, response_timeout=0.1, ble_spp_delay=0, initial_read_delay=0
+    )
+
+    first = asyncio.create_task(client.connect())
+    await transport.connect_started.wait()
+    second = asyncio.create_task(client.connect())
+    transport.connect_gate.set()
+    await asyncio.gather(first, second)
+
+    assert transport.connect_calls == 1
+    assert transport.start_notify_calls == 1
+    assert client.ready
+    assert client._keepalive_task is not None
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_after_ready_is_idempotent() -> None:
+    transport = LifecycleTransport()
+    transport.connect_gate.set()
+    client = SolarFlowClient(
+        transport, response_timeout=0.1, ble_spp_delay=0, initial_read_delay=0
+    )
+
+    await client.connect()
+    writes = len(transport.writes)
+    await client.connect()
+
+    assert transport.connect_calls == 1
+    assert transport.start_notify_calls == 1
+    assert len(transport.writes) == writes
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_discards_stale_messages_and_session_state() -> None:
+    transport = SessionTransport(
+        [
+            {
+                "device_id": "DEVICE-1",
+                "fail_get_info": True,
+                "smart_mode": 1,
+                "pack_serial": "OLD-PACK",
+            },
+            {
+                "device_id": "DEVICE-2",
+                "smart_mode": 0,
+                "pack_serial": "NEW-PACK",
+            },
+        ]
+    )
+    client = SolarFlowClient(
+        transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0
+    )
+
+    with pytest.raises(SolarFlowTimeoutError):
+        await client.connect()
+
+    await client._reports.put({"method": "BLESPP", "deviceId": "DEVICE-1"})
+    await client._reports.put({"method": "getInfo-rsp"})
+    await client._reports.put({"method": "read_reply"})
+    await client._reports.put(
+        {
+            "method": "report",
+            "properties": {"smartMode": 1},
+            "packData": [{"sn": "STALE-PACK"}],
+        }
+    )
+    await client._write_results.put({"method": "report", "properties": {"writeRsp": 0}})
+
+    await client.connect()
+
+    assert client.ready is False
+    assert client.protocol_ready
+    assert client.device_id == "DEVICE-2"
+    assert client.state.device_id == "DEVICE-2"
+    assert client.state.smart_mode == 0
+    assert [pack.serial_number for pack in client.state.packs] == ["NEW-PACK"]
+    assert client._reports.qsize() == 2
+    assert client._write_results.empty()
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_clears_session_state_but_preserves_target_id() -> None:
+    transport = SessionTransport(
+        [
+            {
+                "device_id": "TARGET",
+                "smart_mode": 1,
+                "pack_serial": "PACK-1",
+            }
+        ]
+    )
+    client = SolarFlowClient(
+        transport, device_id="TARGET", response_timeout=0.1, ble_spp_delay=0
+    )
+
+    await client.connect()
+    await client.disconnect()
+
+    assert client.device_id == "TARGET"
+    assert client.state == SolarFlowState()
+    await client.disconnect()
 
 
 @pytest.mark.asyncio
