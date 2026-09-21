@@ -1,6 +1,6 @@
 [project]
 name = "solarflow-ble"
-version = "0.1.2"
+version = "0.1.3"
 description = "Asynchronous Python library for Zendure SolarFlow Bluetooth Low Energy devices"
 readme = "README.md"
 license = "MIT"
