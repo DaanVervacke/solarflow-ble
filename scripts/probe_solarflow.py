@@ -21,6 +21,7 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
+from bleak_retry_connector import establish_connection
 from habluetooth import (
     BluetoothManager,
     BluetoothScanningMode,
@@ -262,7 +263,13 @@ async def run_probe(config: ProbeConfig) -> None:
             await _list_advertisements(config, bluetooth_manager)
             return
         device = await _find_device(config, bluetooth_manager)
-        async with bleak.BleakClient(device, timeout=30) as client:
+        client = await establish_connection(
+            bleak.BleakClient,
+            device,
+            device.name or device.address,
+            timeout=30,
+        )
+        try:
             _LOGGER.info("Connected to DEVICE_ADDRESS")
             for service in client.services:
                 _LOGGER.info("Service %s", service.uuid)
@@ -319,6 +326,9 @@ async def run_probe(config: ProbeConfig) -> None:
                 )
             await asyncio.sleep(config.capture_seconds)
             await client.stop_notify(notify_characteristic)
+        finally:
+            with suppress(Exception):
+                await client.disconnect()
     finally:
         capture.close()
         with suppress(Exception):
