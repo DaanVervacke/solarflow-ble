@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import cast
 
-from bleak import BleakClient
+import bleak
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
@@ -26,17 +26,19 @@ class BleakTransport(BleTransport):
         device: BLEDevice,
         *,
         timeout: float = 30.0,
-        client_factory: Callable[..., BleakClient] = BleakClient,
+        client_factory: Callable[..., bleak.BleakClient] | None = None,
     ) -> None:
         self.device = device
         self.timeout = timeout
-        self._client_factory = client_factory
-        self._client: BleakClient | None = None
+        self._client_factory = (
+            client_factory if client_factory is not None else bleak.BleakClient
+        )
+        self._client: bleak.BleakClient | None = None
         self._notification_tasks: set[asyncio.Task[None]] = set()
         self._accept_notifications = True
 
     @property
-    def client(self) -> BleakClient:
+    def client(self) -> bleak.BleakClient:
         if self._client is None:
             raise RuntimeError("SolarFlow BLE transport is not connected")
         return self._client
@@ -45,7 +47,7 @@ class BleakTransport(BleTransport):
         self._accept_notifications = True
         if self._client is None or not self._client.is_connected:
             self._client = await establish_connection(
-                cast(type[BleakClient], self._client_factory),
+                cast(type[bleak.BleakClient], self._client_factory),
                 self.device,
                 self.device.name or self.device.address,
                 timeout=self.timeout,

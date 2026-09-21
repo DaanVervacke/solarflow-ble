@@ -1,0 +1,36 @@
+{
+  "package": "com.zendure.iot",
+  "version": "7.0.0",
+  "versionCode": 7001,
+  "base_apk_sha256": "c20d12e1fe0908e23e14e13dc48c1c689bf4f8518de8ef885abcd3ac255e9056",
+  "decompiler": "jadx",
+  "decompiler_version": "1.5.6",
+  "evidence_mode": "source_only",
+  "runtime_capture": false,
+  "source_references": [
+    "BleHelper.java:598-613",
+    "BleHelper.java:622-624",
+    "BleHelper.java:811-819",
+    "BleHelper.java:840-851",
+    "BleHelper.java:853-861",
+    "BleHelper.java:881-950",
+    "BleHelper.java:978-981",
+    "BleHelper.java:1322-1324",
+    "BleHelper.java:1326-1333",
+    "SbpBleDeviceDetailActivity.java:114-116",
+    "MsgHelper.java:372-374",
+    "MsgHelper.java:409-423",
+    "SfPowerBaseFragment.java:361-373",
+    "BaseBleParamBean.java:6-18"
+  ],
+  "unknowns": [
+    "runtime timing and response ordering",
+    "MTU effects",
+    "ATT write mode",
+    "notification fragmentation and packet boundaries",
+    "keepalive behavior",
+    "model and firmware scope beyond this app source"
+  ],
+  "redaction": "Source-only contract: no real device identities, serials, credentials, or runtime capture are included. Runtime fields use typed placeholders.",
+  "local_comparison": "The local client enables notifications, waits for BLESPP, sends BLESPP_OK, getInfo, and read in client.py:92-125, recognizes BLESPP/getInfo-rsp/read_reply/report/error in client.py:142-162, and disconnects in client.py:131-140. Its getInfo, read, and control-write shapes include the established deviceId and integer messageId values from the APK contract."
+}

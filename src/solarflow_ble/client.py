@@ -10,6 +10,7 @@ from contextlib import suppress
 from typing import Any, Protocol
 
 from .const import (
+    DEFAULT_BLE_SPP_DELAY,
     DEFAULT_KEEPALIVE_SECONDS,
     DEFAULT_RESPONSE_TIMEOUT,
     NOTIFY_CHARACTERISTIC_UUID,
@@ -19,6 +20,7 @@ from .exceptions import (
     SolarFlowCommandError,
     SolarFlowDeviceError,
     SolarFlowNotReadyError,
+    SolarFlowProtocolError,
     SolarFlowTimeoutError,
     SolarFlowValidationError,
 )
@@ -51,14 +53,16 @@ class SolarFlowClient:
         self,
         transport: BleTransport,
         *,
+        device_id: str | None = None,
         response_timeout: float = DEFAULT_RESPONSE_TIMEOUT,
         keepalive_seconds: float = DEFAULT_KEEPALIVE_SECONDS,
-        ble_spp_delay: float = 0.5,
+        ble_spp_delay: float = DEFAULT_BLE_SPP_DELAY,
         initial_read_delay: float = 0.3,
         update_callback: UpdateCallback | None = None,
         allow_control: bool = False,
     ) -> None:
         self.transport = transport
+        self.device_id = device_id
         self.response_timeout = response_timeout
         self.keepalive_seconds = keepalive_seconds
         self.ble_spp_delay = ble_spp_delay
@@ -71,6 +75,7 @@ class SolarFlowClient:
         self._reports: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._write_results: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._keepalive_task: asyncio.Task[None] | None = None
+        self._message_id = 1
 
     @property
     def connected(self) -> bool:
@@ -91,12 +96,15 @@ class SolarFlowClient:
             await self.transport.start_notify(
                 NOTIFY_CHARACTERISTIC_UUID, self._notification
             )
-            await self._write({"messageId": "1009", "method": "BLESPP_OK"})
+            ble_spp = await self._wait_for_method("BLESPP")
+            self._establish_identity(ble_spp)
+            await self._write({"messageId": 1009, "method": "BLESPP_OK"})
             await asyncio.sleep(self.ble_spp_delay)
             timestamp = int(time.time() * 1000)
             await self._write(
                 {
-                    "messageId": str(timestamp),
+                    "deviceId": self._require_device_id(),
+                    "messageId": self._next_message_id(),
                     "method": "getInfo",
                     "timestamp": timestamp,
                 }
@@ -106,7 +114,8 @@ class SolarFlowClient:
             await asyncio.sleep(self.initial_read_delay)
             await self._write(
                 {
-                    "messageId": "11",
+                    "deviceId": self._require_device_id(),
+                    "messageId": self._next_message_id(),
                     "timestamp": int(time.time() * 1000),
                     "properties": ["getAll"],
                     "method": "read",
@@ -133,7 +142,11 @@ class SolarFlowClient:
     async def _notification(self, _characteristic: str, payload: bytes) -> None:
         message = decode_json(payload)
         method = message.get("method")
-        if method == "getInfo-rsp":
+        self._validate_message_identity(message)
+        if method == "BLESPP":
+            await self._reports.put(message)
+            return
+        if method in {"getInfo-rsp", "read_reply"}:
             await self._reports.put(message)
         elif method == "report":
             properties = message.get("properties")
@@ -171,6 +184,38 @@ class SolarFlowClient:
                 raise SolarFlowTimeoutError(f"Timed out waiting for {method}") from err
             if message.get("method") == method:
                 return message
+
+    def _establish_identity(self, message: dict[str, Any]) -> None:
+        device_id = message.get("deviceId")
+        if not isinstance(device_id, str) or not device_id:
+            raise SolarFlowProtocolError("BLESPP did not include deviceId")
+        if self.device_id is not None and self.device_id != device_id:
+            raise SolarFlowProtocolError(
+                "BLESPP deviceId does not match the requested device"
+            )
+        self.device_id = device_id
+        self.state = self.state.with_identity({"deviceId": device_id})
+
+    def _validate_message_identity(self, message: dict[str, Any]) -> None:
+        message_device_id = message.get("deviceId")
+        if message_device_id is None or self.device_id is None:
+            return
+        if message_device_id != self.device_id:
+            raise SolarFlowProtocolError(
+                "SolarFlow message deviceId does not match the connected device"
+            )
+
+    def _require_device_id(self) -> str:
+        if self.device_id is None:
+            raise SolarFlowProtocolError("SolarFlow device identity is not established")
+        return self.device_id
+
+    def _next_message_id(self) -> int:
+        while self._message_id == 1009:
+            self._message_id += 1
+        message_id = self._message_id
+        self._message_id += 1
+        return message_id
 
     async def _wait_for_initial_reports(self) -> None:
         deadline = asyncio.get_running_loop().time() + self.response_timeout
@@ -213,7 +258,8 @@ class SolarFlowClient:
                 {
                     "method": "write",
                     "timestamp": timestamp,
-                    "messageId": str(timestamp),
+                    "deviceId": self._require_device_id(),
+                    "messageId": self._next_message_id(),
                     "properties": {property_name: value},
                 }
             )
@@ -273,7 +319,8 @@ class SolarFlowClient:
             async with self._lock:
                 await self._write(
                     {
-                        "messageId": "11",
+                        "deviceId": self._require_device_id(),
+                        "messageId": self._next_message_id(),
                         "timestamp": int(time.time() * 1000),
                         "properties": ["getAll"],
                         "method": "read",

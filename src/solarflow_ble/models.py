@@ -34,6 +34,20 @@ _REPORT_FIELDS = {
     "hyperTmp": "hyper_temperature",
 }
 
+_PACK_FIELDS = {
+    "packType": "pack_type",
+    "socLevel": "soc_level",
+    "state": "state",
+    "power": "power",
+    "maxTemp": "max_temp",
+    "totalVol": "total_voltage",
+    "batcur": "battery_current",
+    "maxVol": "max_voltage",
+    "minVol": "min_voltage",
+    "softVersion": "software_version",
+    "heatState": "heat_state",
+}
+
 
 class AcMode(IntEnum):
     """Known AC modes."""
@@ -162,20 +176,12 @@ class SolarFlowState:
         for raw in raw_packs:
             if not isinstance(raw, dict) or not isinstance(raw.get("sn"), str):
                 continue
-            known[raw["sn"]] = BatteryPack(
-                serial_number=raw["sn"],
-                pack_type=raw.get("packType"),
-                soc_level=raw.get("socLevel"),
-                state=raw.get("state"),
-                power=raw.get("power"),
-                max_temp=raw.get("maxTemp"),
-                total_voltage=raw.get("totalVol"),
-                battery_current=raw.get("batcur"),
-                max_voltage=raw.get("maxVol"),
-                min_voltage=raw.get("minVol"),
-                software_version=raw.get("softVersion"),
-                heat_state=raw.get("heatState"),
-            )
+            serial_number = raw["sn"]
+            current = known.get(serial_number, BatteryPack(serial_number=serial_number))
+            changes = {
+                field: raw[key] for key, field in _PACK_FIELDS.items() if key in raw
+            }
+            known[serial_number] = replace(current, **cast(Any, changes))
         return replace(self, packs=tuple(known.values()))
 
 

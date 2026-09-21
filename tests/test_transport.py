@@ -2,6 +2,7 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import bleak
 import pytest
 
 from solarflow_ble.transport import BleakTransport
@@ -47,6 +48,32 @@ async def test_connect_uses_retry_connector() -> None:
         device,
         "SolarFlow",
         timeout=12.5,
+    )
+
+
+@pytest.mark.asyncio
+async def test_connect_resolves_bleak_client_at_instantiation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client_factory = MagicMock()
+    client = MagicMock()
+    device = MagicMock()
+    device.name = "SolarFlow"
+    device.address = "AA:BB:CC:DD:EE:FF"
+    monkeypatch.setattr(bleak, "BleakClient", client_factory)
+
+    transport = BleakTransport(device)
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ) as retry_connector:
+        await transport.connect()
+
+    retry_connector.assert_awaited_once_with(
+        client_factory,
+        device,
+        "SolarFlow",
+        timeout=30.0,
     )
 
 
