@@ -1,11 +1,22 @@
+import sys
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
-from solarflow_ble.probe import (
-    CaptureWriter,
-    ProbeConfig,
-    _advertisement_matches,
-    _redact_capture,
-)
+import pytest
+
+_SPEC = spec_from_file_location("probe_solarflow", "scripts/probe_solarflow.py")
+assert _SPEC is not None
+assert _SPEC.loader is not None
+_MODULE = module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = _MODULE
+_SPEC.loader.exec_module(_MODULE)
+
+CaptureWriter = _MODULE.CaptureWriter
+ProbeConfig = _MODULE.ProbeConfig
+ProbeBluetoothManager = _MODULE.ProbeBluetoothManager
+_advertisement_matches = _MODULE._advertisement_matches
+_redact_capture = _MODULE._redact_capture
+main = _MODULE.main
 
 
 def test_probe_config_normalizes_address() -> None:
@@ -21,6 +32,10 @@ def test_probe_config_normalizes_address() -> None:
         list_advertisements=False,
     )
     assert config.target_address == "AA:BB"
+
+
+def test_probe_bluetooth_manager_implements_discovery_hook() -> None:
+    ProbeBluetoothManager()
 
 
 def test_probe_address_filter() -> None:
@@ -86,3 +101,20 @@ def test_redact_capture_handles_nested_values() -> None:
         "serial_number": "PACK_SERIAL",
         "value": 1,
     }
+
+
+def test_main_reports_probe_errors(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def fail(_config: ProbeConfig) -> None:
+        raise TimeoutError("SolarFlow device was not found through the proxy")
+
+    monkeypatch.setattr(_MODULE, "run_probe", fail)
+
+    with caplog.at_level("WARNING"):
+        result = main(["--proxy", "proxy.local"])
+
+    assert result == 1
+    assert (
+        "Probe failed: SolarFlow device was not found through the proxy" in caplog.text
+    )
