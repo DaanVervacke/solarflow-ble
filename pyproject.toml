@@ -32,7 +32,7 @@ asyncio_mode = "auto"
 [tool.ruff]
 target-version = "py314"
 line-length = 88
-src = ["src", "tests", "scripts"]
+src = ["src/solarflow_ble", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["ALL"]
