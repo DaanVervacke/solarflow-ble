@@ -1,7 +1,7 @@
 [project]
 name = "solarflow-ble"
-version = "0.1.1"
-description = "Add your description here"
+version = "0.1.2"
+description = "Asynchronous Python library for Zendure SolarFlow Bluetooth Low Energy devices"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Daan Vervacke", email = "daan.vervacke@proton.me" }]
