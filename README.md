@@ -54,9 +54,9 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The client connects, completes the BLESPP handshake, reads the initial
-`getAll` state, and keeps the session updated. Always call `disconnect()` when
-the session ends.
+The client connects, completes the BLESPP handshake, sends a `read` request for
+`getAll`, and keeps the session updated. Always call `disconnect()` when the
+session ends.
 
 Control methods are disabled by default. Enable them explicitly when the
 application is intended to change device settings:
@@ -73,9 +73,9 @@ finally:
 ## Probe
 
 The developer-only probe captures SolarFlow GATT traffic through an ESPHome
-Bluetooth proxy (e.g. the Home Assistant Connect AUX-2).
-It does not send device-setting writes by default. It sends the BLESPP
-handshake, `getInfo`, and `getAll` protocol requests.
+Bluetooth proxy (e.g. the Home Assistant Connect AUX-2). It never sends
+device-setting writes. It sends the BLESPP handshake, `getInfo`, and a `read`
+request for `getAll`.
 
 ```bash
 # Discover a SolarFlow device and capture its traffic.
@@ -96,8 +96,9 @@ uv run scripts/probe_solarflow.py \
 ```
 
 Advertisement addresses and parsed SolarFlow identifiers are redacted by
-default. Add `--show-identities` when selecting values for `--address` or
-`--identifier`; capture files remain redacted.
+default. Add `--show-identities` to reveal them while discovering targets;
+known values can still be passed directly with `--address` or `--identifier`.
+Capture files remain redacted.
 
 Target a specific SolarFlow device by Bluetooth address:
 
@@ -125,7 +126,7 @@ uv run scripts/probe_solarflow.py \
 ```
 
 Connect to a device and capture notifications without sending the BLESPP
-handshake or the initial `getInfo` and `getAll` requests:
+handshake or the initial `getInfo` and `read`/`getAll` requests:
 
 ```bash
 uv run scripts/probe_solarflow.py \
@@ -140,6 +141,9 @@ uv run scripts/probe_solarflow.py \
 ## Development
 
 This project uses [uv](https://docs.astral.sh/uv/) and targets Python 3.14+.
+
+The library only requires an injected `BleTransport`. The developer scripts
+add ESPHome proxy discovery and lifecycle management around that transport.
 
 ```bash
 uv sync
@@ -160,8 +164,9 @@ uv run pytest tests/test_solarflow.py -k connect_handshake
 
 Use the standalone diagnostic to exercise `SolarFlowClient` through an
 ESPHome Bluetooth proxy. It discovers exactly one target by address or
-SolarFlow advertisement identifier and is read-only unless controls are
-explicitly confirmed.
+SolarFlow advertisement identifier. Exactly one of `--address` or
+`--identifier` is required, and the diagnostic is read-only unless controls
+are explicitly confirmed.
 
 ```bash
 uv run scripts/test_solarflow_client.py \
@@ -176,7 +181,9 @@ The script prints device identities and decoded state to stdout for local
 diagnostics. The optional JSONL file is always recursively redacted. Controls
 require both `--controls` and `--confirm-controls`; they also require explicit
 `--min-soc` and `--soc` values because those original wire values are not
-available safely for restoration.
+available safely for restoration. Accepted control ranges are input/output
+limits `0..2400 W`, minimum SOC `0..50%`, target SOC `70..100%`, and AC mode
+`1` or `2`.
 
 The connection settings can be kept in the ignored local config file
 `scripts/test_solarflow_client.local.json`. The file may contain `proxy`,
