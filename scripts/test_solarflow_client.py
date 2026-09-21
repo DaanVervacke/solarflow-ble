@@ -17,7 +17,6 @@ import habluetooth
 from bleak.backends.device import BLEDevice
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
 from habluetooth import BluetoothManager, BluetoothScanningMode
-
 from solarflow_ble import BleakTransport, SolarFlowClient
 from solarflow_ble.models import BatteryPack, SolarFlowState, SolarFlowUpdate
 from solarflow_ble.protocol import parse_advertisement
