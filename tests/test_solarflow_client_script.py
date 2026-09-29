@@ -244,14 +244,42 @@ def test_control_plan_never_guesses_restore_values() -> None:
     assert [(action.property_name, action.value) for action in plan.actions] == [
         ("inputLimit", 700),
         ("outputLimit", 800),
-        ("minSoc", 20),
-        ("socSet", 90),
         ("acMode", 1),
     ]
     assert plan.actions[0].restore_value == 600
     assert plan.actions[1].restore_value is None
-    assert plan.actions[2].restore_value is None
-    assert plan.actions[3].restore_value is None
+    assert "minSoc: cannot restore safely: original value unknown" in plan.skipped
+    assert "socSet: cannot restore safely: original value unknown" in plan.skipped
+
+
+def test_control_plan_restores_soc_overrides_from_reported_state() -> None:
+    plan = plan_controls(
+        SolarFlowState(min_soc=255, soc_set=900),
+        min_soc=20,
+        soc=95,
+    )
+
+    assert [
+        (action.property_name, action.value, action.restore_value)
+        for action in plan.actions
+    ] == [
+        ("minSoc", 20, 25),
+        ("socSet", 95, 90),
+    ]
+
+
+def test_control_plan_refuses_overrides_without_restorable_originals() -> None:
+    plan = plan_controls(
+        SolarFlowState(min_soc=200),
+        min_soc=20,
+        soc=90,
+        ac_mode=1,
+    )
+
+    assert [action.property_name for action in plan.actions] == ["minSoc"]
+    assert plan.actions[0].restore_value == 20
+    assert "socSet: cannot restore safely: original value unknown" in plan.skipped
+    assert "acMode: cannot restore safely: original value unknown" in plan.skipped
 
 
 def test_control_plan_reports_unavailable_current_values() -> None:

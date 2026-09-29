@@ -809,3 +809,9 @@ def test_report_mapping_updates_fields() -> None:
     assert state.input_limit == 100
     assert state.output_limit == 200
     assert state.solar_power_6 == 30
+
+
+def test_report_mapping_keeps_soc_controls_in_wire_units() -> None:
+    state = SolarFlowState().update({"minSoc": 200, "socSet": 900})
+    assert state.min_soc == 200
+    assert state.soc_set == 900

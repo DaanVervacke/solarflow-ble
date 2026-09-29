@@ -183,6 +183,30 @@ def _value_or_override(
     return ControlAction(property_name, setter_name, value, state_value)
 
 
+def _restorable_value_or_override(
+    property_name: str,
+    setter_name: str,
+    state_value: int | None,
+    override: int | None,
+    skipped: list[str],
+) -> ControlAction | None:
+    if override is not None and state_value is None:
+        skipped.append(
+            f"{property_name}: cannot restore safely: original value unknown"
+        )
+        return None
+    return _value_or_override(
+        property_name, setter_name, state_value, override, skipped
+    )
+
+
+def _wire_per_mille_to_percent(value: int | None) -> int | None:
+    """Convert a per-mille wire value (percent x 10) to whole percent."""
+    if value is None:
+        return None
+    return value // 10
+
+
 def plan_controls(
     state: SolarFlowState,
     *,
@@ -192,7 +216,11 @@ def plan_controls(
     soc: int | None = None,
     ac_mode: int | None = None,
 ) -> ControlPlan:
-    """Plan controls without inventing values for missing state."""
+    """Plan controls without inventing values for missing state.
+
+    Overrides whose original value is unknown are refused so that every
+    applied control can be restored.
+    """
     skipped: list[str] = []
     actions = [
         action
@@ -207,9 +235,21 @@ def plan_controls(
                 output_limit,
                 skipped,
             ),
-            _value_or_override("minSoc", "set_min_soc", None, min_soc, skipped),
-            _value_or_override("socSet", "set_soc", None, soc, skipped),
-            _value_or_override(
+            _restorable_value_or_override(
+                "minSoc",
+                "set_min_soc",
+                _wire_per_mille_to_percent(state.min_soc),
+                min_soc,
+                skipped,
+            ),
+            _restorable_value_or_override(
+                "socSet",
+                "set_soc",
+                _wire_per_mille_to_percent(state.soc_set),
+                soc,
+                skipped,
+            ),
+            _restorable_value_or_override(
                 "acMode", "set_ac_mode", state.ac_mode, ac_mode, skipped
             ),
         )

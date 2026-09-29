@@ -21,6 +21,10 @@ _REPORT_FIELDS = {
     "smartMode": "smart_mode",
     "chargeMaxLimit": "charge_max_limit",
     "socLimit": "soc_limit",
+    # minSoc/socSet are per-mille on the wire (percent x 10); the client
+    # multiplies by 10 when setting them, so keep raw wire values here.
+    "minSoc": "min_soc",
+    "socSet": "soc_set",
     "gridInputPower": "grid_input_power",
     "solarInputPower": "solar_input_power",
     "solarPower1": "solar_power_1",
@@ -120,6 +124,9 @@ class SolarFlowState:
     smart_mode: int | None = None
     charge_max_limit: int | None = None
     soc_limit: int | None = None
+    # Raw wire values: minSoc/socSet are reported as per-mille (percent x 10).
+    min_soc: int | None = None
+    soc_set: int | None = None
     output_home_power: int | None = None
     remain_out_time: int | None = None
     data_ready: int | None = None
