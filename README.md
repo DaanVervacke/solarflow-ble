@@ -28,21 +28,22 @@ from solarflow_ble import BleakTransport, SolarFlowClient
 
 async def main() -> None:
     device = BLEDevice("AA:BB:CC:DD:EE:FF", "SolarFlow", {})
-    client = SolarFlowClient(BleakTransport(device))
-    try:
-        await client.connect()
+    async with SolarFlowClient(BleakTransport(device)) as client:
         print(client.device_id)
         print(client.state)
-    finally:
-        await client.disconnect()
 
 
 asyncio.run(main())
 ```
 
+The `async with` block connects on entry and always disconnects on exit,
+including when the body raises. For reconnect use cases, call `connect()`
+and `disconnect()` yourself instead; `connect()` is reusable after
+`disconnect()` on the same client instance.
+
 The client waits for `BLESPP`, sends `BLESPP_OK`, requests `getInfo`, then
 sends a `read` request for `getAll`. It keeps the session updated with report
-messages. Always disconnect the client.
+messages.
 
 Control methods are disabled unless `allow_control=True`. Validated ranges are:
 

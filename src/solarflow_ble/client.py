@@ -7,7 +7,8 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from typing import Any, NoReturn, Protocol
+from types import TracebackType
+from typing import Any, NoReturn, Protocol, Self
 
 from .const import (
     DEFAULT_BLE_SPP_DELAY,
@@ -163,6 +164,18 @@ class SolarFlowClient:
     async def disconnect(self) -> None:
         async with self._lifecycle_lock:
             await self._disconnect_locked()
+
+    async def __aenter__(self) -> Self:
+        await self.connect()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self.disconnect()
 
     async def _disconnect_locked(self) -> None:
         if self._keepalive_task:

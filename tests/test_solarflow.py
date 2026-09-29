@@ -1204,3 +1204,65 @@ def test_report_mapping_keeps_soc_controls_in_wire_units() -> None:
     state = SolarFlowState().update({"minSoc": 200, "socSet": 900})
     assert state.min_soc == 200
     assert state.soc_set == 900
+
+
+@pytest.mark.asyncio
+async def test_async_context_manager_connects_and_disconnects() -> None:
+    transport = FakeTransport()
+    async with SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    ) as client:
+        assert client.connected
+        assert client.device_id == "DEVICE-1"
+
+    assert client.status is ConnectionStatus.DISCONNECTED
+    assert not client.connected
+    assert client._keepalive_task is None
+
+
+@pytest.mark.asyncio
+async def test_async_context_manager_disconnects_and_propagates_errors() -> None:
+    transport = FakeTransport()
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    )
+
+    async with client as entered:
+        assert entered is client
+        assert entered.connected
+        with pytest.raises(RuntimeError, match="boom"):
+            raise RuntimeError("boom")
+
+    assert client.status is ConnectionStatus.DISCONNECTED
+    assert not client.connected
+    assert client._keepalive_task is None
+
+
+@pytest.mark.asyncio
+async def test_async_context_manager_reenters_after_exit() -> None:
+    transport = LifecycleTransport()
+    transport.connect_gate.set()
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    )
+
+    async with client:
+        assert client.connected
+    async with client:
+        assert client.connected
+
+    assert transport.connect_calls == 2
+    assert client.status is ConnectionStatus.DISCONNECTED
+    assert not client.connected
