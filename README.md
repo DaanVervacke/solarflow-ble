@@ -51,6 +51,25 @@ Control methods are disabled unless `allow_control=True`. Validated ranges are:
 - target SOC: `70..100%`
 - AC mode: `1` or `2`
 
+## Connection loss
+
+The client detects a failed session through the next failing BLE write (the
+keepalive writes every 30 seconds by default, so an abrupt disconnect is
+detected at most one keepalive interval later) and through client-side
+protocol errors such as invalid JSON payloads or device ID mismatches. When a
+session fails:
+
+- pending calls raise `SolarFlowConnectionError` immediately instead of
+  waiting for the response timeout
+- `client.status` flips to `ConnectionStatus.DISCONNECTED`
+- an optional `connection_lost_callback` receives the underlying exception
+- `client.last_error` holds the most recent device-reported error message,
+  if the device sent one (`method == "error"`)
+
+Messages that are still being processed when the session fails keep flowing
+to `update_callback`, with `update.status` reflecting `DISCONNECTED`. Call
+`connect()` again to start a fresh session.
+
 ## Probe
 
 The developer-only probe captures raw GATT traffic through an ESPHome

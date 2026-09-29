@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from solarflow_ble import SolarFlowClient, SolarFlowState, parse_advertisement
+from solarflow_ble import (
+    ConnectionStatus,
+    SolarFlowClient,
+    SolarFlowState,
+    SolarFlowUpdate,
+    parse_advertisement,
+)
 from solarflow_ble.client import NotificationCallback
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
 from solarflow_ble.exceptions import (
     SolarFlowCommandError,
+    SolarFlowConnectionError,
     SolarFlowDeviceError,
     SolarFlowNotReadyError,
     SolarFlowProtocolError,
@@ -338,6 +346,63 @@ class SessionTransport(FakeTransport):
             )
 
 
+class LinkLossTransport(FakeTransport):
+    """Fake transport that fails reads once BLE link loss is armed."""
+
+    def __init__(self, write_response: int | None = None) -> None:
+        super().__init__(write_response=write_response)
+        self.fail_reads = asyncio.Event()
+
+    async def write_gatt_char(
+        self, characteristic: str, data: bytes, response: bool = False
+    ) -> None:
+        message = json.loads(data)
+        if message["method"] == "read" and self.fail_reads.is_set():
+            raise RuntimeError("BLE link lost")
+        await super().write_gatt_char(characteristic, data, response)
+
+
+class NoSmartModeTransport(FakeTransport):
+    """Fake transport whose reports never include smartMode."""
+
+    async def write_gatt_char(
+        self, characteristic: str, data: bytes, response: bool = False
+    ) -> None:
+        self.writes.append(data)
+        callback = self.callback
+        assert callback is not None
+        message = json.loads(data)
+        if message["method"] == "getInfo":
+            await self._emit(callback, b'{"method":"getInfo-rsp"}')
+        elif message["method"] == "read":
+            await self._emit(callback, b'{"method":"read_reply"}')
+            await self._emit(
+                callback, b'{"method":"report","properties":{"electricLevel":26}}'
+            )
+
+
+class SilentReadTransport(FakeTransport):
+    """Fake transport that answers the handshake but never reports."""
+
+    async def write_gatt_char(
+        self, characteristic: str, data: bytes, response: bool = False
+    ) -> None:
+        self.writes.append(data)
+        callback = self.callback
+        assert callback is not None
+        message = json.loads(data)
+        if message["method"] == "getInfo":
+            await self._emit(callback, b'{"method":"getInfo-rsp"}')
+
+
+async def _wait_until(condition: Callable[[], bool], seconds: float = 1.0) -> None:
+    deadline = asyncio.get_running_loop().time() + seconds
+    while not condition():
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"condition not met within {seconds} seconds")
+        await asyncio.sleep(0.01)
+
+
 @pytest.mark.asyncio
 async def test_connect_failure_cleans_up_after_get_info_timeout() -> None:
     transport = FailingTransport("getInfo")
@@ -435,7 +500,7 @@ async def test_reconnect_discards_stale_messages_and_session_state() -> None:
     assert client.state.device_id == "DEVICE-2"
     assert client.state.smart_mode == 0
     assert [pack.serial_number for pack in client.state.packs] == ["NEW-PACK"]
-    assert client._reports.qsize() == 2
+    assert client._reports.qsize() == 0
     assert client._write_results.empty()
     await client.disconnect()
 
@@ -614,16 +679,32 @@ async def test_constructor_device_id_mismatch_is_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_later_device_id_mismatch_is_rejected() -> None:
+async def test_later_device_id_mismatch_fails_the_session() -> None:
     transport = FakeTransport()
-    client = SolarFlowClient(transport, response_timeout=0.1)
-    await transport.start_notify(NOTIFY_CHARACTERISTIC_UUID, client._notification)
-    client.device_id = "DEVICE-1"
-    with pytest.raises(SolarFlowProtocolError, match="does not match"):
-        await client._notification(
-            NOTIFY_CHARACTERISTIC_UUID,
-            b'{"method":"report","deviceId":"DEVICE-2","properties":{}}',
-        )
+    lost: list[Exception] = []
+
+    def on_connection_lost(error: Exception) -> None:
+        lost.append(error)
+
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        connection_lost_callback=on_connection_lost,
+    )
+    await client.connect()
+
+    await client._notification(
+        NOTIFY_CHARACTERISTIC_UUID,
+        b'{"method":"report","deviceId":"DEVICE-2","properties":{}}',
+    )
+
+    assert client.status is ConnectionStatus.DISCONNECTED
+    assert not client.connected
+    assert len(lost) == 1
+    assert isinstance(lost[0], SolarFlowProtocolError)
 
 
 def test_message_id_counter_skips_reserved_id_and_is_integer() -> None:
@@ -800,6 +881,172 @@ async def test_disconnect_cancels_blocked_keepalive_write() -> None:
     writes_after_disconnect = len(transport.writes)
     await asyncio.sleep(0)
     assert len(transport.writes) == writes_after_disconnect
+
+
+@pytest.mark.asyncio
+async def test_keepalive_write_failure_fails_session_and_notifies_caller() -> None:
+    transport = LinkLossTransport()
+    lost: list[Exception] = []
+
+    async def on_connection_lost(error: Exception) -> None:
+        lost.append(error)
+
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        connection_lost_callback=on_connection_lost,
+    )
+    await client.connect()
+    transport.fail_reads.set()
+    client.keepalive_seconds = 0
+
+    await _wait_until(lambda: client.status is ConnectionStatus.DISCONNECTED)
+
+    assert client._keepalive_task is None
+    assert len(lost) == 1
+    assert isinstance(lost[0], RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_pending_control_write_fails_fast_when_session_dies() -> None:
+    transport = LinkLossTransport(write_response=None)
+    client = SolarFlowClient(
+        transport,
+        response_timeout=5.0,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        allow_control=True,
+    )
+    await client.connect()
+
+    pending = asyncio.create_task(client.set_input_limit(100))
+    await _wait_until(transport.write_started.is_set)
+    await asyncio.sleep(0)
+
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    await client._notification(NOTIFY_CHARACTERISTIC_UUID, b"{invalid")
+    with pytest.raises(SolarFlowConnectionError):
+        await asyncio.wait_for(pending, 2.0)
+
+    assert loop.time() - start < 1.0
+    assert client.status is ConnectionStatus.DISCONNECTED
+
+
+@pytest.mark.asyncio
+async def test_update_callbacks_are_delivered_in_order_and_serialized() -> None:
+    events: list[str] = []
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def callback(update: SolarFlowUpdate) -> None:
+        level = update.state.electric_level
+        events.append(f"start:{level}")
+        if level == 10:
+            first_started.set()
+            await release_first.wait()
+        events.append(f"end:{level}")
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        update_callback=callback,
+    )
+    await client.connect()
+    events.clear()
+
+    first = asyncio.create_task(
+        client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","properties":{"electricLevel":10}}',
+        )
+    )
+    await asyncio.wait_for(first_started.wait(), 1)
+    second = asyncio.create_task(
+        client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","properties":{"electricLevel":20}}',
+        )
+    )
+    await asyncio.sleep(0.05)
+
+    assert events == ["start:10"]
+    assert client.state.electric_level == 10
+
+    release_first.set()
+    await asyncio.gather(first, second)
+
+    assert events == ["start:10", "end:10", "start:20", "end:20"]
+    assert client.state.electric_level == 20
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_mid_session_error_sets_last_error_and_reaches_callback() -> None:
+    updates: list[SolarFlowUpdate] = []
+
+    async def callback(update: SolarFlowUpdate) -> None:
+        updates.append(update)
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        update_callback=callback,
+    )
+    await client.connect()
+    updates.clear()
+
+    await client._notification(
+        NOTIFY_CHARACTERISTIC_UUID, b'{"method":"error","data":[{"code":40}]}'
+    )
+
+    assert isinstance(client.last_error, SolarFlowDeviceError)
+    assert "40" in str(client.last_error)
+    assert client.status is ConnectionStatus.READY
+    assert updates[-1].raw_message["method"] == "error"
+    assert updates[-1].status is ConnectionStatus.READY
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_succeeds_without_smart_mode_report() -> None:
+    client = SolarFlowClient(
+        NoSmartModeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    )
+    await client.connect()
+
+    assert client.status is ConnectionStatus.PROTOCOL_READY
+    assert client.protocol_ready
+    assert not client.ready
+    assert client.state.electric_level == 26
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_times_out_when_no_report_arrives() -> None:
+    client = SolarFlowClient(
+        SilentReadTransport(),
+        response_timeout=0.05,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    )
+
+    with pytest.raises(SolarFlowTimeoutError, match="initial report"):
+        await client.connect()
+
+    assert not client.connected
 
 
 def test_report_mapping_updates_fields() -> None:
