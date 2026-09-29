@@ -8,24 +8,21 @@ import importlib.util
 import json
 import sys
 import time
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Coroutine, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
-from urllib.parse import urlsplit
 
 import habluetooth
 from bleak.backends.device import BLEDevice
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
-from habluetooth import BluetoothManager, BluetoothScanningMode
 from solarflow_ble import BleakTransport, SolarFlowClient
 from solarflow_ble.models import BatteryPack, SolarFlowState, SolarFlowUpdate
 from solarflow_ble.protocol import parse_advertisement
 
 DEFAULT_DURATION = 15.0
 DEFAULT_SCAN_SECONDS = 30.0
-DEFAULT_DISCOVERY_WARMUP_SECONDS = 5.0
 DEFAULT_CONFIG = Path("scripts/test_solarflow_client.local.json")
 _CONFIG_KEYS = frozenset({"proxy", "noise_psk", "address", "identifier"})
 _STATE_FIELDS = (
@@ -59,13 +56,6 @@ class ControlPlan:
 
     actions: tuple[ControlAction, ...]
     skipped: tuple[str, ...]
-
-
-class DiagnosticBluetoothManager(BluetoothManager):
-    """Bluetooth manager used for direct advertisement discovery."""
-
-    def _discover_service_info(self, service_info: Any) -> None:
-        """Keep scanner-owned advertisement data as the discovery source."""
 
 
 class JsonlWriter:
@@ -105,22 +95,33 @@ def _load_redaction_module() -> ModuleType:
 redact_value: Callable[[Any], Any] = _load_redaction_module().redact_value
 
 
+def _load_proxy_common_module() -> ModuleType:
+    """Load the shared proxy helpers that ship next to this script."""
+    path = Path(__file__).resolve().with_name("_proxy_common.py")
+    spec = importlib.util.spec_from_file_location("_proxy_common", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load proxy helpers from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_proxy_common = _load_proxy_common_module()
+DiagnosticBluetoothManager: type[habluetooth.BluetoothManager] = (
+    _proxy_common.DiscoveryBluetoothManager
+)
+proxy_host: Callable[[str], str] = _proxy_common.proxy_host
+scan_for_target: Callable[..., Coroutine[Any, Any, tuple[BLEDevice, str | None]]] = (
+    _proxy_common.scan_for_target
+)
+set_active_scanning: Callable[[habluetooth.BluetoothManager], None] = (
+    _proxy_common.set_active_scanning
+)
+
+
 def serialize_pack(pack: BatteryPack) -> dict[str, Any]:
     """Serialize one typed battery pack for diagnostics."""
-    return {
-        "serial_number": pack.serial_number,
-        "pack_type": pack.pack_type,
-        "soc_level": pack.soc_level,
-        "state": pack.state,
-        "power": pack.power,
-        "max_temp": pack.max_temp,
-        "total_voltage": pack.total_voltage,
-        "battery_current": pack.battery_current,
-        "max_voltage": pack.max_voltage,
-        "min_voltage": pack.min_voltage,
-        "software_version": pack.software_version,
-        "heat_state": pack.heat_state,
-    }
+    return asdict(pack)
 
 
 def serialize_state(state: SolarFlowState) -> dict[str, Any]:
@@ -369,17 +370,6 @@ def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def _proxy_host(value: str) -> str:
-    parsed = urlsplit(value if "://" in value else f"//{value}")
-    return parsed.hostname or value.removeprefix("//")
-
-
-def _set_active_scanning(manager: habluetooth.BluetoothManager) -> None:
-    for scanner in manager.async_current_scanners():
-        if getattr(scanner, "connectable", False):
-            scanner.set_requested_mode(BluetoothScanningMode.ACTIVE)
-
-
 async def find_device(
     manager: habluetooth.BluetoothManager,
     *,
@@ -389,35 +379,38 @@ async def find_device(
 ) -> tuple[BLEDevice, str | None]:
     """Find one exact target from habluetooth scanner advertisements."""
     normalized_address = address.upper() if address else None
-    await asyncio.sleep(DEFAULT_DISCOVERY_WARMUP_SECONDS)
-    deadline = asyncio.get_running_loop().time() + scan_seconds
-    while True:
-        if normalized_address:
-            device = manager.async_ble_device_from_address(
-                normalized_address, connectable=True
-            )
-            if device is not None:
-                return device, None
-        for scanner in manager.async_current_scanners():
-            discovered = cast(
-                dict[str, tuple[BLEDevice, Any]],
-                scanner.discovered_devices_and_advertisement_data,
-            )
-            for device, advertisement in discovered.values():
-                if normalized_address and device.address.upper() != normalized_address:
-                    continue
-                parsed = parse_advertisement(
-                    device.address,
-                    advertisement.manufacturer_data,
-                    rssi=advertisement.rssi,
-                    connectable=True,
-                )
-                if parsed is None or (identifier and parsed.identifier != identifier):
-                    continue
-                return device, parsed.identifier
-        if asyncio.get_running_loop().time() >= deadline:
-            raise TimeoutError("SolarFlow device was not found through the proxy")
-        await asyncio.sleep(0.5)
+
+    def lookup() -> tuple[BLEDevice, str | None] | None:
+        if not normalized_address:
+            return None
+        device = manager.async_ble_device_from_address(
+            normalized_address, connectable=True
+        )
+        if device is not None:
+            return device, None
+        return None
+
+    def match(
+        device: BLEDevice, advertisement: Any
+    ) -> tuple[BLEDevice, str | None] | None:
+        if normalized_address and device.address.upper() != normalized_address:
+            return None
+        parsed = parse_advertisement(
+            device.address,
+            advertisement.manufacturer_data,
+            rssi=advertisement.rssi,
+            connectable=True,
+        )
+        if parsed is None or (identifier and parsed.identifier != identifier):
+            return None
+        return device, parsed.identifier
+
+    return await scan_for_target(
+        manager,
+        lookup=lookup,
+        match=match,
+        scan_seconds=scan_seconds,
+    )
 
 
 async def run_controls(client: SolarFlowClient, args: argparse.Namespace) -> None:
@@ -473,7 +466,7 @@ async def run(args: argparse.Namespace) -> None:
     """Run one direct library-client diagnostic session."""
     writer = JsonlWriter(args.output)
     manager = APIConnectionManager(
-        ESPHomeDeviceConfig(address=_proxy_host(args.proxy), noise_psk=args.noise_psk)
+        ESPHomeDeviceConfig(address=proxy_host(args.proxy), noise_psk=args.noise_psk)
     )
     bluetooth_manager = DiagnosticBluetoothManager()
     client: SolarFlowClient | None = None
@@ -485,7 +478,7 @@ async def run(args: argparse.Namespace) -> None:
     try:
         await bluetooth_manager.async_setup()
         await manager.start()
-        _set_active_scanning(bluetooth_manager)
+        set_active_scanning(bluetooth_manager)
         device, discovered_identifier = await find_device(
             bluetooth_manager, address=args.address, identifier=args.identifier
         )

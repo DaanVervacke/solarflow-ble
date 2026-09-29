@@ -32,5 +32,5 @@
     "model and firmware scope beyond this app source"
   ],
   "redaction": "Source-only contract: no real device identities, serials, credentials, or runtime capture are included. Runtime fields use typed placeholders.",
-  "local_comparison": "The local client enables notifications, waits for BLESPP, sends BLESPP_OK, getInfo, and read in client.py:92-125, recognizes BLESPP/getInfo-rsp/read_reply/report/error in client.py:142-162, and disconnects in client.py:131-140. Its getInfo, read, and control-write shapes include the established deviceId and integer messageId values from the APK contract."
+  "local_comparison": "The local client enables notifications, waits for BLESPP, sends BLESPP_OK, getInfo, and read in client.py:127-146, recognizes BLESPP/getInfo-rsp/read_reply/report/error in client.py:236-298, and disconnects in client.py:169-179. Its getInfo, read, and control-write shapes include the established deviceId and integer messageId values from the APK contract."
 }

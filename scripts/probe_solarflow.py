@@ -9,13 +9,12 @@ import json
 import logging
 import os
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
-from urllib.parse import urlsplit
 
 import bleak
 import habluetooth
@@ -24,11 +23,6 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
 from bleak_retry_connector import establish_connection
-from habluetooth import (
-    BluetoothManager,
-    BluetoothScanningMode,
-    BluetoothServiceInfoBleak,
-)
 from solarflow_ble import BleakTransport, SolarFlowClient
 from solarflow_ble.client import BleTransport, NotificationCallback
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
@@ -36,13 +30,6 @@ from solarflow_ble.exceptions import SolarFlowError
 from solarflow_ble.protocol import parse_advertisement
 
 _LOGGER = logging.getLogger(__name__)
-
-
-class ProbeBluetoothManager(BluetoothManager):
-    """Keep discovery data available for the probe's direct scanner reads."""
-
-    def _discover_service_info(self, service_info: BluetoothServiceInfoBleak) -> None:
-        """Handle discovery through the scanner collections read by the probe."""
 
 
 @dataclass(slots=True)
@@ -150,12 +137,6 @@ def _find_characteristic(
     return characteristic
 
 
-def _proxy_host(value: str) -> str:
-    """Return the host portion accepted by bleak-esphome."""
-    parsed = urlsplit(value if "://" in value else f"//{value}")
-    return parsed.hostname or value.removeprefix("//")
-
-
 def _load_redaction_module() -> ModuleType:
     """Load the shared redaction helpers that ship next to this script."""
     path = Path(__file__).resolve().with_name("_redact.py")
@@ -170,15 +151,35 @@ def _load_redaction_module() -> ModuleType:
 redact_value: Callable[[Any], Any] = _load_redaction_module().redact_value
 
 
-def _set_active_scanning(bluetooth_manager: habluetooth.BluetoothManager) -> None:
-    """Request active scanning from every connectable proxy scanner."""
-    for scanner in bluetooth_manager.async_current_scanners():
-        if getattr(scanner, "connectable", False):
-            scanner.set_requested_mode(BluetoothScanningMode.ACTIVE)
-            _LOGGER.info(
-                "Requested active scanning from %s",
-                getattr(scanner, "source", "scanner"),
-            )
+def _load_proxy_common_module() -> ModuleType:
+    """Load the shared proxy helpers that ship next to this script."""
+    path = Path(__file__).resolve().with_name("_proxy_common.py")
+    spec = importlib.util.spec_from_file_location("_proxy_common", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load proxy helpers from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_proxy_common = _load_proxy_common_module()
+ProbeBluetoothManager: type[habluetooth.BluetoothManager] = (
+    _proxy_common.DiscoveryBluetoothManager
+)
+proxy_host: Callable[[str], str] = _proxy_common.proxy_host
+scan_for_target: Callable[..., Coroutine[Any, Any, BLEDevice]] = (
+    _proxy_common.scan_for_target
+)
+set_active_scanning: Callable[
+    [habluetooth.BluetoothManager, Callable[[Any], None] | None], None
+] = _proxy_common.set_active_scanning
+
+
+def _log_active_scan_request(scanner: Any) -> None:
+    _LOGGER.info(
+        "Requested active scanning from %s",
+        getattr(scanner, "source", "scanner"),
+    )
 
 
 def _advertisement_matches(config: ProbeConfig, device: BLEDevice) -> bool:
@@ -202,45 +203,43 @@ def _log_found_target(
 async def _find_device(
     config: ProbeConfig, bluetooth_manager: habluetooth.BluetoothManager
 ) -> BLEDevice:
-    await asyncio.sleep(5)
-    deadline = asyncio.get_running_loop().time() + config.scan_seconds
-    while True:
-        if config.target_address:
-            device = bluetooth_manager.async_ble_device_from_address(
-                config.target_address, connectable=True
-            )
-            if device is not None:
+    def lookup() -> BLEDevice | None:
+        if not config.target_address:
+            return None
+        device = bluetooth_manager.async_ble_device_from_address(
+            config.target_address, connectable=True
+        )
+        if device is not None:
+            _log_found_target(config, device)
+            return device
+        for device in bluetooth_manager.async_discovered_devices(True):
+            if _advertisement_matches(config, device):
                 _log_found_target(config, device)
                 return device
-        if config.target_address:
-            for device in bluetooth_manager.async_discovered_devices(True):
-                if _advertisement_matches(config, device):
-                    _log_found_target(config, device)
-                    return device
-        for scanner in bluetooth_manager.async_current_scanners():
-            discovered = cast(
-                dict[str, tuple[BLEDevice, Any]],
-                scanner.discovered_devices_and_advertisement_data,
-            )
-            for device, advertisement in discovered.values():
-                if not _advertisement_matches(config, device):
-                    continue
-                parsed = parse_advertisement(
-                    device.address,
-                    advertisement.manufacturer_data,
-                    rssi=advertisement.rssi,
-                    connectable=True,
-                )
-                if parsed is None or (
-                    config.target_identifier
-                    and parsed.identifier != config.target_identifier
-                ):
-                    continue
-                _log_found_target(config, device, parsed.identifier)
-                return device
-        if asyncio.get_running_loop().time() >= deadline:
-            raise TimeoutError("SolarFlow device was not found through the proxy")
-        await asyncio.sleep(0.5)
+        return None
+
+    def match(device: BLEDevice, advertisement: Any) -> BLEDevice | None:
+        if not _advertisement_matches(config, device):
+            return None
+        parsed = parse_advertisement(
+            device.address,
+            advertisement.manufacturer_data,
+            rssi=advertisement.rssi,
+            connectable=True,
+        )
+        if parsed is None or (
+            config.target_identifier and parsed.identifier != config.target_identifier
+        ):
+            return None
+        _log_found_target(config, device, parsed.identifier)
+        return device
+
+    return await scan_for_target(
+        bluetooth_manager,
+        lookup=lookup,
+        match=match,
+        scan_seconds=config.scan_seconds,
+    )
 
 
 async def _list_advertisements(
@@ -278,7 +277,6 @@ async def _list_advertisements(
                     advertisement.rssi,
                     advertisement.service_uuids,
                 )
-            continue
         await asyncio.sleep(0.5)
     _LOGGER.info("Advertisement scan complete; unique devices=%d", len(seen))
 
@@ -321,7 +319,7 @@ async def run_probe(config: ProbeConfig) -> None:
     capture = CaptureWriter(config.output)
     manager = APIConnectionManager(
         ESPHomeDeviceConfig(
-            address=_proxy_host(config.proxy), noise_psk=config.noise_psk
+            address=proxy_host(config.proxy), noise_psk=config.noise_psk
         )
     )
     bluetooth_manager = ProbeBluetoothManager()
@@ -335,7 +333,7 @@ async def run_probe(config: ProbeConfig) -> None:
             sum(bool(getattr(scanner, "connectable", False)) for scanner in scanners),
             sum(bool(getattr(scanner, "scanning", False)) for scanner in scanners),
         )
-        _set_active_scanning(bluetooth_manager)
+        set_active_scanning(bluetooth_manager, _log_active_scan_request)
         if config.list_advertisements:
             await _list_advertisements(config, bluetooth_manager)
             return

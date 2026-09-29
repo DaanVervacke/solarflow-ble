@@ -60,14 +60,6 @@ class AcMode(IntEnum):
     DISCHARGING = 2
 
 
-class PackState(IntEnum):
-    """Known pack states."""
-
-    STANDBY = 0
-    CHARGING = 1
-    DISCHARGING = 2
-
-
 class ConnectionStatus(StrEnum):
     """Protocol session status."""
 
