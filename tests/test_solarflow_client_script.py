@@ -195,6 +195,30 @@ def test_redaction_is_recursive() -> None:
     }
 
 
+def test_redaction_covers_shared_key_union() -> None:
+    redacted = redact_value(
+        {
+            "identifier": "real-identifier",
+            "address": "real-address",
+            "name": "real-name",
+            "password": "real-password",
+            "token": "real-token",
+            "secret": "real-secret",
+            "apiKey": "real-apikey",
+        }
+    )
+
+    assert redacted == {
+        "identifier": "DEVICE_IDENTIFIER",
+        "address": "DEVICE_ADDRESS",
+        "name": "DEVICE_NAME",
+        "password": "REDACTED",
+        "token": "REDACTED",
+        "secret": "REDACTED",
+        "apiKey": "REDACTED",
+    }
+
+
 def test_state_and_pack_serialization() -> None:
     pack = BatteryPack(serial_number="PACK-1", soc_level=80, power=42)
     state = replace(

@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import json
 import logging
 import os
 import time
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -75,7 +77,7 @@ class CaptureWriter:
         payload_length = len(payload)
         text = payload.decode("utf-8", errors="replace")
         try:
-            decoded = _redact_capture(json.loads(text))
+            decoded = redact_value(json.loads(text))
             payload = json.dumps(
                 decoded, separators=(",", ":"), ensure_ascii=False
             ).encode()
@@ -85,7 +87,7 @@ class CaptureWriter:
             text = "[binary payload redacted]"
             payload = b"[binary payload redacted]"
         safe_hex = payload.hex() if decoded is not None else "[binary payload redacted]"
-        extra = _redact_capture(extra)
+        extra = redact_value(extra)
         record = {
             "time": time.time(),
             "direction": direction,
@@ -154,28 +156,18 @@ def _proxy_host(value: str) -> str:
     return parsed.hostname or value.removeprefix("//")
 
 
-_REDACTED_KEYS = {
-    "deviceid": "DEVICE_ID",
-    "productkey": "PRODUCT_KEY",
-    "sn": "PACK_SERIAL",
-    "serial": "PACK_SERIAL",
-    "serialnumber": "PACK_SERIAL",
-    "noisepsk": "REDACTED",
-}
+def _load_redaction_module() -> ModuleType:
+    """Load the shared redaction helpers that ship next to this script."""
+    path = Path(__file__).resolve().with_name("_redact.py")
+    spec = importlib.util.spec_from_file_location("_redact", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load redaction helpers from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def _redact_capture(value: Any) -> Any:
-    """Remove device identity and credentials from persisted captures."""
-    if isinstance(value, dict):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            normalized = key.replace("_", "").replace("-", "").lower()
-            replacement = _REDACTED_KEYS.get(normalized)
-            redacted[key] = replacement if replacement else _redact_capture(item)
-        return redacted
-    if isinstance(value, list):
-        return [_redact_capture(item) for item in value]
-    return value
+redact_value: Callable[[Any], Any] = _load_redaction_module().redact_value
 
 
 def _set_active_scanning(bluetooth_manager: habluetooth.BluetoothManager) -> None:
@@ -199,7 +191,7 @@ def _log_found_target(
     identifier: str | None = None,
 ) -> None:
     if not config.show_identities:
-        _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", device.name)
+        _LOGGER.info("Found target address=%s name=%s", "DEVICE_ADDRESS", "DEVICE_NAME")
         return
     identity = f"address={device.address}"
     if identifier is not None:
@@ -295,10 +287,13 @@ async def _run_passive_capture(
     config: ProbeConfig, device: BLEDevice, capture: CaptureWriter
 ) -> None:
     """Capture notifications through the direct Bleak path without writes."""
+    client_name = (
+        device.name or device.address if config.show_identities else "DEVICE_NAME"
+    )
     client = await establish_connection(
         bleak.BleakClient,
         device,
-        device.name or device.address,
+        client_name,
         timeout=30,
     )
     try:

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -21,9 +22,10 @@ ProbeBluetoothManager = _MODULE.ProbeBluetoothManager
 _advertisement_matches = _MODULE._advertisement_matches
 _find_device = _MODULE._find_device
 _list_advertisements = _MODULE._list_advertisements
-_redact_capture = _MODULE._redact_capture
+_log_found_target = _MODULE._log_found_target
 _parser = _MODULE._parser
 _run_passive_capture = _MODULE._run_passive_capture
+redact_value = _MODULE.redact_value
 run_probe = _MODULE.run_probe
 main = _MODULE.main
 
@@ -98,6 +100,41 @@ def test_capture_writer_redacts_identity(tmp_path: Path) -> None:
     assert "DEVICE_ID" in content
     assert "PRODUCT_KEY" in content
     assert "PACK_SERIAL" in content
+
+
+def test_capture_writer_redacts_shared_redaction_keys(tmp_path: Path) -> None:
+    path = tmp_path / "capture.jsonl"
+    writer = CaptureWriter(path)
+    writer.write(
+        "rx",
+        b'{"identifier":"real-identifier","address":"real-address",'
+        b'"name":"real-name","password":"real-password",'
+        b'"token":"real-token","secret":"real-secret",'
+        b'"apiKey":"real-apikey"}',
+    )
+    writer.close()
+
+    content = path.read_text()
+    for secret in (
+        "real-identifier",
+        "real-address",
+        "real-name",
+        "real-password",
+        "real-token",
+        "real-secret",
+        "real-apikey",
+    ):
+        assert secret not in content
+    record = json.loads(content)
+    assert record["json"] == {
+        "identifier": "DEVICE_IDENTIFIER",
+        "address": "DEVICE_ADDRESS",
+        "name": "DEVICE_NAME",
+        "password": "REDACTED",
+        "token": "REDACTED",
+        "secret": "REDACTED",
+        "apiKey": "REDACTED",
+    }
 
 
 def test_capture_writer_redacts_non_json_payload(tmp_path: Path) -> None:
@@ -218,6 +255,50 @@ async def test_passive_capture_uses_direct_bleak_without_writes(
 
     assert client.calls == ["start_notify", "stop_notify", "disconnect"]
     assert not hasattr(client, "write_gatt_char")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("show_identities", [False, True])
+async def test_passive_capture_client_name_follows_identity_setting(
+    monkeypatch: pytest.MonkeyPatch, show_identities: bool
+) -> None:
+    class Services:
+        def get_characteristic(self, uuid: str) -> Any:
+            return SimpleNamespace(uuid=uuid)
+
+    class FakeBleakClient:
+        def __init__(self) -> None:
+            self.services = Services()
+
+        async def start_notify(self, _characteristic: Any, _callback: Any) -> None:
+            pass
+
+        async def stop_notify(self, _characteristic: Any) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+    client = FakeBleakClient()
+    client_names: list[object] = []
+
+    async def establish_connection(
+        _client: Any, _device: Any, name: object, **_kwargs: Any
+    ) -> Any:
+        client_names.append(name)
+        return client
+
+    monkeypatch.setattr(_MODULE, "establish_connection", establish_connection)
+    monkeypatch.setattr(_MODULE.asyncio, "sleep", _async_noop)
+    config = _scan_config()
+    config.capture_seconds = 0
+    config.show_identities = show_identities
+    device = SimpleNamespace(address="AA:BB", name="SolarFlow")
+
+    await _run_passive_capture(config, device, CaptureWriter(None))
+
+    expected_name = "SolarFlow" if show_identities else "DEVICE_NAME"
+    assert client_names == [expected_name]
 
 
 @pytest.mark.asyncio
@@ -365,8 +446,8 @@ async def _async_device(_config: Any, _manager: Any) -> Any:
     return SimpleNamespace(address="AA:BB", name="SolarFlow")
 
 
-def test_redact_capture_handles_nested_values() -> None:
-    assert _redact_capture({"serial_number": "secret", "value": 1}) == {
+def test_redact_value_handles_nested_values() -> None:
+    assert redact_value({"serial_number": "secret", "value": 1}) == {
         "serial_number": "PACK_SERIAL",
         "value": 1,
     }
@@ -506,6 +587,36 @@ def test_list_advertisements_shows_identity_when_enabled(
 
     assert "address=AA:BB:CC:DD:EE:FF" in caplog.text
     assert "identifier=REAL_IDENTIFIER" in caplog.text
+
+
+def test_log_found_target_redacts_name_by_default(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _scan_config()
+    device = SimpleNamespace(address="AA:BB:CC:DD:EE:FF", name="SolarFlow")
+
+    with caplog.at_level("INFO"):
+        _log_found_target(config, device)
+
+    assert "address=DEVICE_ADDRESS" in caplog.text
+    assert "name=DEVICE_NAME" in caplog.text
+    assert "AA:BB:CC:DD:EE:FF" not in caplog.text
+    assert "SolarFlow" not in caplog.text
+
+
+def test_log_found_target_shows_identity_when_enabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _scan_config()
+    config.show_identities = True
+    device = SimpleNamespace(address="AA:BB:CC:DD:EE:FF", name="SolarFlow")
+
+    with caplog.at_level("INFO"):
+        _log_found_target(config, device, "REAL_IDENTIFIER")
+
+    assert "address=AA:BB:CC:DD:EE:FF" in caplog.text
+    assert "identifier=REAL_IDENTIFIER" in caplog.text
+    assert "name=SolarFlow" in caplog.text
 
 
 def test_capture_writer_redacts_identity_independently_of_probe_display(

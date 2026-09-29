@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import json
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -39,23 +41,6 @@ _STATE_FIELDS = (
     "fault_level",
     "smart_mode",
 )
-_REDACTED_KEYS = {
-    "address": "DEVICE_ADDRESS",
-    "apikey": "REDACTED",
-    "deviceaddress": "DEVICE_ADDRESS",
-    "deviceid": "DEVICE_ID",
-    "identifier": "DEVICE_IDENTIFIER",
-    "noisepsk": "REDACTED",
-    "name": "DEVICE_NAME",
-    "packserial": "PACK_SERIAL",
-    "password": "REDACTED",
-    "productkey": "PRODUCT_KEY",
-    "secret": "REDACTED",
-    "serial": "PACK_SERIAL",
-    "serialnumber": "PACK_SERIAL",
-    "sn": "PACK_SERIAL",
-    "token": "REDACTED",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,22 +91,18 @@ class JsonlWriter:
             self._file = None
 
 
-def _normal_key(key: object) -> str:
-    return str(key).replace("_", "").replace("-", "").lower()
+def _load_redaction_module() -> ModuleType:
+    """Load the shared redaction helpers that ship next to this script."""
+    path = Path(__file__).resolve().with_name("_redact.py")
+    spec = importlib.util.spec_from_file_location("_redact", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load redaction helpers from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def redact_value(value: Any) -> Any:
-    """Recursively redact identities, serials, and credentials in a value."""
-    if isinstance(value, dict):
-        return {
-            key: _REDACTED_KEYS.get(_normal_key(key), redact_value(item))
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [redact_value(item) for item in value]
-    if isinstance(value, tuple):
-        return [redact_value(item) for item in value]
-    return value
+redact_value: Callable[[Any], Any] = _load_redaction_module().redact_value
 
 
 def serialize_pack(pack: BatteryPack) -> dict[str, Any]:
