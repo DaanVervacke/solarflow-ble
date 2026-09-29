@@ -5,7 +5,18 @@ from __future__ import annotations
 import subprocess
 import sys
 
+VERSION_CHECK = """import tomllib
+from pathlib import Path
+import solarflow_ble
+data = tomllib.loads(Path('pyproject.toml').read_text())
+expected = data['project']['version']
+actual = solarflow_ble.__version__
+if actual != expected:
+    raise SystemExit(f'version drift: {expected} != {actual}')
+"""
+
 COMMANDS = (
+    ("version", ("uv", "run", "python", "-c", VERSION_CHECK)),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
     ("lint", ("uv", "run", "ruff", "check", ".")),
     ("types", ("uv", "run", "mypy", "src", "tests", "scripts")),

@@ -5,7 +5,7 @@ from .models import Advertisement, ConnectionStatus, SolarFlowState, SolarFlowUp
 from .protocol import parse_advertisement
 from .transport import BleakTransport
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __all__ = [
     "Advertisement",
     "BleTransport",
