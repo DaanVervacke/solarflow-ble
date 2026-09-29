@@ -25,6 +25,7 @@ from .exceptions import (
     SolarFlowTimeoutError,
     SolarFlowValidationError,
 )
+from .limits import DEFAULT_LIMITS, MODEL_LIMITS, SolarFlowLimits
 from .models import ConnectionStatus, SolarFlowState, SolarFlowUpdate
 from .protocol import decode_json, encode_json
 
@@ -72,6 +73,8 @@ class SolarFlowClient:
         update_callback: UpdateCallback | None = None,
         connection_lost_callback: ConnectionLostCallback | None = None,
         allow_control: bool = False,
+        model: str | None = None,
+        limits: SolarFlowLimits | None = None,
     ) -> None:
         self.transport = transport
         self.device_id = device_id
@@ -82,11 +85,14 @@ class SolarFlowClient:
         self.update_callback = update_callback
         self.connection_lost_callback = connection_lost_callback
         self.allow_control = allow_control
+        self.model = model
+        self.limits = limits
         self.state = SolarFlowState()
         self.status = ConnectionStatus.DISCONNECTED
         self.last_error: SolarFlowDeviceError | None = None
         self._lock = asyncio.Lock()
         self._lifecycle_lock = asyncio.Lock()
+        self._warned_unknown_model = False
         self._target_device_id = device_id
         self._reports: asyncio.Queue[dict[str, Any] | _SessionClosed] = asyncio.Queue()
         self._write_results: asyncio.Queue[dict[str, Any] | _SessionClosed] = (
@@ -429,24 +435,28 @@ class SolarFlowClient:
                     return
 
     async def set_input_limit(self, value: int) -> None:
-        self._validate_limit(value)
+        limits = self._resolve_limits()
+        self._validate_limit(value, limits.max_input_power_w, "Input power limit")
         await self._request_write("inputLimit", value)
 
     async def set_output_limit(self, value: int) -> None:
-        self._validate_limit(value)
+        limits = self._resolve_limits()
+        self._validate_limit(value, limits.max_output_power_w, "Output power limit")
         await self._request_write("outputLimit", value)
 
     async def set_min_soc(self, value: int) -> None:
-        if not 0 <= value <= 50:
+        limits = self._resolve_limits()
+        if not 0 <= value <= limits.max_min_soc:
             raise SolarFlowValidationError(
-                "Minimum SOC must be between 0 and 50 percent"
+                f"Minimum SOC must be between 0 and {limits.max_min_soc} percent"
             )
         await self._request_write("minSoc", value * 10)
 
     async def set_soc(self, value: int) -> None:
-        if not 70 <= value <= 100:
+        limits = self._resolve_limits()
+        if not limits.min_target_soc <= value <= 100:
             raise SolarFlowValidationError(
-                "Maximum SOC must be between 70 and 100 percent"
+                f"Maximum SOC must be between {limits.min_target_soc} and 100 percent"
             )
         await self._request_write("socSet", value * 10)
 
@@ -476,6 +486,30 @@ class SolarFlowClient:
             await self._handle_session_failure(err)
 
     @staticmethod
-    def _validate_limit(value: int) -> None:
-        if not 0 <= value <= 2400:
-            raise SolarFlowValidationError("Power limit must be between 0 and 2400 W")
+    def _validate_limit(value: int, maximum: int, label: str) -> None:
+        if not 0 <= value <= maximum:
+            raise SolarFlowValidationError(f"{label} must be between 0 and {maximum} W")
+
+    def _resolve_limits(self) -> SolarFlowLimits:
+        """Resolve validation bounds for the current device.
+
+        Resolution order: explicit ``limits``, then the registry entry for
+        the resolved model identity (the ``model`` constructor argument,
+        or the ``productKey`` the device reports once known), then the
+        verified SolarFlow 2400AC default with a one-time warning.
+        """
+        if self.limits is not None:
+            return self.limits
+        identity = self.model if self.model is not None else self.state.product_key
+        if identity is not None:
+            limits = MODEL_LIMITS.get(identity.lower())
+            if limits is not None:
+                return limits
+        if not self._warned_unknown_model:
+            self._warned_unknown_model = True
+            _LOGGER.warning(
+                "SolarFlow model %s has no verified limits; assuming SolarFlow "
+                "2400AC control bounds, pass model= or limits= to override",
+                identity if identity is not None else "(unreported)",
+            )
+        return DEFAULT_LIMITS

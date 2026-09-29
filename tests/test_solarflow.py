@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 from solarflow_ble import (
+    DEFAULT_LIMITS,
+    MODEL_LIMITS,
+    MODEL_SOLARFLOW_2400AC,
     ConnectionStatus,
     SolarFlowClient,
+    SolarFlowLimits,
     SolarFlowState,
     SolarFlowUpdate,
     parse_advertisement,
@@ -717,7 +722,7 @@ def test_message_id_counter_skips_reserved_id_and_is_integer() -> None:
 def test_invalid_limits_rejected() -> None:
     client = SolarFlowClient(FakeTransport())
     with pytest.raises(SolarFlowValidationError):
-        client._validate_limit(2401)
+        client._validate_limit(2401, 2400, "Power limit")
 
 
 @pytest.mark.asyncio
@@ -729,6 +734,7 @@ async def test_controls_are_disabled_by_default() -> None:
 
 async def _connected_control_client(
     write_response: int | None = 0,
+    **client_kwargs: Any,
 ) -> tuple[FakeTransport, SolarFlowClient]:
     transport = FakeTransport(write_response=write_response)
     client = SolarFlowClient(
@@ -738,6 +744,7 @@ async def _connected_control_client(
         ble_spp_delay=0,
         initial_read_delay=0,
         allow_control=True,
+        **client_kwargs,
     )
     await client.connect()
     return transport, client
@@ -800,6 +807,141 @@ async def test_control_setters_reject_invalid_upper_power_limit() -> None:
 
     with pytest.raises(SolarFlowValidationError):
         await client.set_output_limit(2401)
+
+
+def test_default_limits_match_verified_2400ac_values() -> None:
+    assert (
+        SolarFlowLimits(
+            max_input_power_w=2400,
+            max_output_power_w=2400,
+            max_min_soc=50,
+            min_target_soc=70,
+        )
+        == DEFAULT_LIMITS
+    )
+    assert MODEL_LIMITS == {MODEL_SOLARFLOW_2400AC: DEFAULT_LIMITS}
+
+
+@pytest.mark.asyncio
+async def test_custom_limits_allow_what_defaults_reject() -> None:
+    limits = SolarFlowLimits(
+        max_input_power_w=2400,
+        max_output_power_w=2400,
+        max_min_soc=50,
+        min_target_soc=10,
+    )
+    _, client = await _connected_control_client(limits=limits)
+
+    await client.set_soc(50)
+    await client.set_soc(100)
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_custom_limits_reject_what_defaults_allow() -> None:
+    limits = SolarFlowLimits(
+        max_input_power_w=1200,
+        max_output_power_w=1200,
+        max_min_soc=30,
+        min_target_soc=80,
+    )
+    _, client = await _connected_control_client(limits=limits)
+
+    with pytest.raises(SolarFlowValidationError):
+        await client.set_input_limit(1500)
+    with pytest.raises(SolarFlowValidationError):
+        await client.set_output_limit(1500)
+    with pytest.raises(SolarFlowValidationError):
+        await client.set_min_soc(40)
+    with pytest.raises(SolarFlowValidationError):
+        await client.set_soc(75)
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_unknown_model_falls_back_to_default_limits_with_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _, client = await _connected_control_client(model="mystery-model")
+
+    with caplog.at_level(logging.WARNING, logger="solarflow_ble.client"):
+        await client.set_input_limit(2400)
+        with pytest.raises(SolarFlowValidationError):
+            await client.set_input_limit(2401)
+        await client.set_min_soc(50)
+        with pytest.raises(SolarFlowValidationError):
+            await client.set_min_soc(51)
+
+    warnings = [
+        record for record in caplog.records if "no verified limits" in record.message
+    ]
+    assert len(warnings) == 1
+    assert "mystery-model" in warnings[0].message
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_registry_model_uses_verified_limits_without_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _, client = await _connected_control_client(model=MODEL_SOLARFLOW_2400AC)
+
+    with caplog.at_level(logging.WARNING, logger="solarflow_ble.client"):
+        await client.set_input_limit(2400)
+        with pytest.raises(SolarFlowValidationError):
+            await client.set_input_limit(2401)
+
+    assert not [
+        record for record in caplog.records if "no verified limits" in record.message
+    ]
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_product_key_resolves_registry_limits_without_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _, client = await _connected_control_client()
+    await client._notification(
+        NOTIFY_CHARACTERISTIC_UUID,
+        json.dumps(
+            {
+                "method": "report",
+                "productKey": MODEL_SOLARFLOW_2400AC.upper(),
+                "properties": {"smartMode": 1},
+            }
+        ).encode(),
+    )
+    assert client.state.product_key == MODEL_SOLARFLOW_2400AC.upper()
+
+    with caplog.at_level(logging.WARNING, logger="solarflow_ble.client"):
+        await client.set_input_limit(2400)
+        with pytest.raises(SolarFlowValidationError):
+            await client.set_input_limit(2401)
+
+    assert not [
+        record for record in caplog.records if "no verified limits" in record.message
+    ]
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_explicit_limits_win_over_registry_entry() -> None:
+    limits = SolarFlowLimits(
+        max_input_power_w=1200,
+        max_output_power_w=1200,
+        max_min_soc=30,
+        min_target_soc=80,
+    )
+    _, client = await _connected_control_client(
+        model=MODEL_SOLARFLOW_2400AC, limits=limits
+    )
+
+    with pytest.raises(SolarFlowValidationError):
+        await client.set_input_limit(2400)
+    with pytest.raises(SolarFlowValidationError):
+        await client.set_soc(75)
+    await client.disconnect()
 
 
 @pytest.mark.asyncio

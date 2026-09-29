@@ -51,6 +51,21 @@ Control methods are disabled unless `allow_control=True`. Validated ranges are:
 - target SOC: `70..100%`
 - AC mode: `1` or `2`
 
+### Model limits
+
+Those ranges are the values verified for the SolarFlow 2400AC and are the
+default for every model. Validation bounds are model-specific: applying
+2400AC bounds to a smaller unit could forward out-of-spec values to the
+hardware, while larger models would have valid values rejected. Pass
+`model="solarflow-2400ac"` (matched case-insensitively against the registry
+of verified entries; the `productKey` the device reports is used when
+`model` is not given) or explicit `limits=SolarFlowLimits(...)` to the
+constructor. At validation time the client resolves bounds in this order:
+explicit `limits`, the registry entry for the model, then the 2400AC
+default with a one-time warning. Only bounds verified against real
+hardware are registered; unverified models always fall back to the
+default with that warning.
+
 ## Connection loss
 
 The client detects a failed session through the next failing BLE write (the
