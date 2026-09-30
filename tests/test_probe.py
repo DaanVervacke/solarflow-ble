@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
-_SPEC = spec_from_file_location("probe_solarflow", "scripts/probe_solarflow.py")
+_SPEC = spec_from_file_location(
+    "probe_solarflow", Path(__file__).parent.parent / "scripts" / "probe_solarflow.py"
+)
 assert _SPEC is not None
 assert _SPEC.loader is not None
 _MODULE = module_from_spec(_SPEC)

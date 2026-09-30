@@ -11,7 +11,8 @@ from solarflow_ble import SolarFlowState
 from solarflow_ble.models import BatteryPack, ConnectionStatus, SolarFlowUpdate
 
 _SPEC = spec_from_file_location(
-    "solarflow_client_script", "scripts/test_solarflow_client.py"
+    "solarflow_client_script",
+    Path(__file__).parent.parent / "scripts" / "test_solarflow_client.py",
 )
 assert _SPEC is not None
 assert _SPEC.loader is not None
