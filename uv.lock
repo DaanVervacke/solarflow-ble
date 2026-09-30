@@ -941,7 +941,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bleak", specifier = ">=1.1.1" },
+    { name = "bleak", specifier = ">=1.1.1,<4" },
     { name = "bleak-retry-connector", specifier = ">=4.7.1" },
 ]
 

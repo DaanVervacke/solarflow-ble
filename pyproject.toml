@@ -7,7 +7,7 @@ license = "MIT"
 authors = [{ name = "Daan Vervacke", email = "daan.vervacke@proton.me" }]
 requires-python = ">=3.14"
 dependencies = [
-    "bleak>=1.1.1",
+    "bleak>=1.1.1,<4",
     "bleak-retry-connector>=4.7.1",
 ]
 
