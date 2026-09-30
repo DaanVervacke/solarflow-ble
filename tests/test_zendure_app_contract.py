@@ -5,6 +5,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pytest
+from solarflow_ble import SolarFlowClient
+
+from test_solarflow import FakeTransport
+
 FIXTURE = Path(__file__).parent / "fixtures" / "zendure_app_7_0_0_contract.jsonl"
 METADATA = Path(__file__).parent / "fixtures" / "zendure_app_7_0_0_contract.meta.json"
 
@@ -177,3 +182,56 @@ def test_metadata_identifies_source_artifact_not_runtime_capture() -> None:
     assert "fragmentation" in " ".join(metadata["unknowns"])
     assert "keepalive" in " ".join(metadata["unknowns"])
     assert "no real" in metadata["redaction"]
+
+
+@pytest.mark.asyncio
+async def test_client_outbound_wire_shapes_match_contract_records() -> None:
+    transport = FakeTransport()
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    )
+    await client.connect()
+
+    outbound = {
+        record["method"]: record
+        for record in _records()
+        if record["kind"] == "outbound"
+    }
+    emitted = {
+        message["method"]: message
+        for message in (json.loads(write) for write in transport.writes)
+    }
+    assert set(emitted) == set(outbound)
+
+    for method, message in emitted.items():
+        shape = outbound[method]["shape"]
+        assert set(message) == set(shape)
+        for key, expected in shape.items():
+            if expected == "<device_id>":
+                assert message[key] == "DEVICE-1"
+            elif expected in ("<runtime_int>", "<runtime_millis>"):
+                assert isinstance(message[key], int)
+            else:
+                assert message[key] == expected
+
+    await client.disconnect()
+
+
+def test_contract_marks_client_implemented_methods_as_aligned() -> None:
+    implemented = {
+        "BLESPP",
+        "BLESPP_OK",
+        "getInfo",
+        "getInfo-rsp",
+        "read",
+        "read_reply",
+        "report",
+        "error",
+    }
+    for record in _records():
+        if record["method"] in implemented:
+            assert record["local_status"] == "aligned", record["method"]
