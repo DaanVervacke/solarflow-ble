@@ -28,6 +28,13 @@ class BleakTransport(BleTransport):
         timeout: float = 30.0,
         client_factory: Callable[..., bleak.BleakClient] | None = None,
     ) -> None:
+        """Initialize the transport.
+
+        Args:
+            device: The BLE device to connect to.
+            timeout: Connection timeout in seconds.
+            client_factory: Overrides the Bleak client class, for tests.
+        """
         self.device = device
         self.timeout = timeout
         self._client_factory = (
@@ -39,11 +46,13 @@ class BleakTransport(BleTransport):
 
     @property
     def client(self) -> bleak.BleakClient:
+        """The connected Bleak client; raises when not connected."""
         if self._client is None:
             raise RuntimeError("SolarFlow BLE transport is not connected")
         return self._client
 
     async def connect(self) -> None:
+        """Connect to the device, reusing a live connection."""
         self._accept_notifications = True
         if self._client is None or not self._client.is_connected:
             self._client = await establish_connection(
@@ -54,6 +63,7 @@ class BleakTransport(BleTransport):
             )
 
     async def disconnect(self) -> None:
+        """Disconnect and cancel any in-flight notification callbacks."""
         self._accept_notifications = False
         await self._cancel_notification_tasks()
         client = self._client
@@ -66,6 +76,8 @@ class BleakTransport(BleTransport):
     async def start_notify(
         self, characteristic: str, callback: NotificationCallback
     ) -> None:
+        """Subscribe to notifications on ``characteristic``."""
+
         def on_notification(
             gatt_characteristic: BleakGATTCharacteristic, payload: bytearray
         ) -> None:
@@ -80,12 +92,14 @@ class BleakTransport(BleTransport):
         await self.client.start_notify(characteristic, on_notification)
 
     async def stop_notify(self, characteristic: str) -> None:
+        """Unsubscribe from notifications, keeping a dropped connection quiet."""
         if self._client is not None and self._client.is_connected:
             await self._client.stop_notify(characteristic)
 
     async def write_gatt_char(
         self, characteristic: str, data: bytes, response: bool = False
     ) -> None:
+        """Write ``data`` to ``characteristic``."""
         await self.client.write_gatt_char(characteristic, data, response=response)
 
     def _notification_task_done(self, task: asyncio.Task[None]) -> None:

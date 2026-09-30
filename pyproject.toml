@@ -80,7 +80,17 @@ ignore = [
     "FBT002",
     "FBT003",
     "FURB110",
-    "D",
+    # Docstring style stays off; D102/D107 keep docstrings on public
+    # methods and __init__.
+    "D100",
+    "D101",
+    "D103",
+    "D104",
+    "D105",
+    "D106",
+    "D2",
+    "D3",
+    "D4",
     "ISC001",
     "PLR0913",
     "PLR0917",
@@ -99,6 +109,8 @@ ignore = [
     "ANN",
     "ARG",
     "CPY001",
+    "D102",
+    "D107",
     "FBT",
     "INP001",
     "PLC0415",
@@ -108,6 +120,8 @@ ignore = [
     "S106",
     "SLF001",
 ]
+
+"scripts/**" = ["D102", "D107"]
 
 "scripts/check.py" = ["S603", "T201"]
 

@@ -124,7 +124,15 @@ def _merged_packs(
 
 @dataclass(frozen=True, slots=True)
 class SolarFlowState:
-    """Latest decoded controller state."""
+    """Latest decoded controller state.
+
+    Fields hold the raw wire values of the report properties they mirror.
+    ``min_soc`` and ``soc_set`` are per-mille on the wire (percent x 10):
+    a reported 500 means 50%. The control methods take percents and do
+    the conversion themselves. ``raw`` holds the known report keys of
+    every applied report, merged across the session; unknown properties
+    are dropped, so it never grows through a hostile peripheral.
+    """
 
     pack_input_power: int | None = None
     output_pack_power: int | None = None
@@ -163,6 +171,7 @@ class SolarFlowState:
     raw: dict[str, object] | None = None
 
     def update(self, values: dict[str, object]) -> SolarFlowState:
+        """Apply a plain properties mapping as one report."""
         return self.with_report({"properties": values})
 
     def with_report(self, message: dict[str, object]) -> SolarFlowState:
@@ -209,6 +218,7 @@ class SolarFlowState:
         return replace(self, **changes)
 
     def with_identity(self, message: dict[str, object]) -> SolarFlowState:
+        """Apply the deviceId and productKey a message carries, if any."""
         device_id = message.get("deviceId")
         product_key = message.get("productKey")
         return replace(
@@ -220,6 +230,7 @@ class SolarFlowState:
         )
 
     def with_packs(self, message: dict[str, object]) -> SolarFlowState:
+        """Merge the packData entries a message carries, if any."""
         raw_packs = message.get("packData")
         if not isinstance(raw_packs, list):
             return self

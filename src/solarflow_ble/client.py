@@ -49,15 +49,24 @@ class _SessionClosed:
 class BleTransport(Protocol):
     """Minimal BLE transport supplied by the caller."""
 
-    async def connect(self) -> None: ...
-    async def disconnect(self) -> None: ...
+    async def connect(self) -> None:
+        """Establish the GATT connection."""
+
+    async def disconnect(self) -> None:
+        """Tear down the GATT connection."""
+
     async def start_notify(
         self, characteristic: str, callback: NotificationCallback
-    ) -> None: ...
-    async def stop_notify(self, characteristic: str) -> None: ...
+    ) -> None:
+        """Subscribe to notifications on ``characteristic``."""
+
+    async def stop_notify(self, characteristic: str) -> None:
+        """Unsubscribe from notifications on ``characteristic``."""
+
     async def write_gatt_char(
         self, characteristic: str, data: bytes, response: bool = False
-    ) -> None: ...
+    ) -> None:
+        """Write ``data`` to ``characteristic``."""
 
 
 class SolarFlowClient:
@@ -78,6 +87,24 @@ class SolarFlowClient:
         model: str | None = None,
         limits: SolarFlowLimits | None = None,
     ) -> None:
+        """Initialize the client.
+
+        Args:
+            transport: BLE transport that owns the GATT connection.
+            device_id: Require this deviceId in the BLESPP handshake; the
+                reported identity is accepted when omitted.
+            response_timeout: Seconds to wait for each device response.
+            keepalive_seconds: Interval between keepalive read requests.
+            ble_spp_delay: Pause after BLESPP_OK before the getInfo request.
+            initial_read_delay: Pause between getInfo and the initial read.
+            update_callback: Called with every decoded update after the
+                handshake.
+            connection_lost_callback: Called with the exception that ended
+                a session.
+            allow_control: Enable the control methods.
+            model: Model key used to resolve validation limits.
+            limits: Explicit validation bounds, overriding model resolution.
+        """
         self.transport = transport
         self.device_id = device_id
         self.response_timeout = response_timeout
@@ -113,17 +140,36 @@ class SolarFlowClient:
 
     @property
     def connected(self) -> bool:
+        """Whether the transport is connected, handshake pending or not."""
         return self.status is not ConnectionStatus.DISCONNECTED
 
     @property
     def protocol_ready(self) -> bool:
+        """Whether the handshake completed, initial reports pending or not."""
         return self.status in (ConnectionStatus.PROTOCOL_READY, ConnectionStatus.READY)
 
     @property
     def ready(self) -> bool:
+        """Whether the session is ready for control writes."""
         return self.status is ConnectionStatus.READY
 
     async def connect(self) -> None:
+        """Connect and complete the protocol handshake.
+
+        Connects the transport, subscribes to notifications, and drives the
+        BLESPP handshake: BLESPP and BLESPP_OK, getInfo, then an initial
+        getAll read. The session becomes ready once the first report
+        arrives. A no-op when already connected; reusable after
+        ``disconnect()``.
+
+        Raises:
+            SolarFlowProtocolError: The handshake data is invalid or the
+                device identity does not match ``device_id``.
+            SolarFlowTimeoutError: A handshake step exceeds
+                ``response_timeout``.
+            SolarFlowDeviceError: The device reports an error during the
+                handshake.
+        """
         async with self._lifecycle_lock:
             if self.connected:
                 return
@@ -172,6 +218,12 @@ class SolarFlowClient:
                 raise
 
     async def disconnect(self) -> None:
+        """Disconnect and tear down the session.
+
+        Cancels the keepalive, stops notifications, and disconnects the
+        transport. Errors during teardown are suppressed. A no-op when
+        already disconnected.
+        """
         async with self._lifecycle_lock:
             # Mark the close as user-initiated so a session failure that
             # races this disconnect leaves the cleanup and the
@@ -564,16 +616,72 @@ class SolarFlowClient:
             )
 
     async def set_input_limit(self, value: int) -> None:
+        """Set the solar input power limit.
+
+        Args:
+            value: Limit in watts, between 0 and the model's
+                ``max_input_power_w`` (2400 for the SolarFlow 2400AC
+                default).
+
+        Raises:
+            SolarFlowValidationError: The value is outside the model
+                bounds.
+            SolarFlowNotReadyError: Controls are disabled or the session
+                is not ready.
+            SolarFlowConnectionError: The write failed or the session
+                failed while waiting for the acknowledgement.
+            SolarFlowTimeoutError: The acknowledgement exceeds
+                ``response_timeout``.
+            SolarFlowCommandError: The device rejected the write.
+        """
         limits = self._resolve_limits()
         self._validate_limit(value, limits.max_input_power_w, "Input power limit")
         await self._request_write("inputLimit", value)
 
     async def set_output_limit(self, value: int) -> None:
+        """Set the AC/battery output power limit.
+
+        Args:
+            value: Limit in watts, between 0 and the model's
+                ``max_output_power_w`` (2400 for the SolarFlow 2400AC
+                default).
+
+        Raises:
+            SolarFlowValidationError: The value is outside the model
+                bounds.
+            SolarFlowNotReadyError: Controls are disabled or the session
+                is not ready.
+            SolarFlowConnectionError: The write failed or the session
+                failed while waiting for the acknowledgement.
+            SolarFlowTimeoutError: The acknowledgement exceeds
+                ``response_timeout``.
+            SolarFlowCommandError: The device rejected the write.
+        """
         limits = self._resolve_limits()
         self._validate_limit(value, limits.max_output_power_w, "Output power limit")
         await self._request_write("outputLimit", value)
 
     async def set_min_soc(self, value: int) -> None:
+        """Set the minimum state-of-charge reserve.
+
+        The device stores the value as per-mille; the percent value given
+        here is multiplied by 10 on the wire.
+
+        Args:
+            value: Minimum SOC in percent, between 0 and the model's
+                ``max_min_soc`` (50 for the SolarFlow 2400AC default).
+
+        Raises:
+            SolarFlowValidationError: The value is outside the model
+                bounds.
+            SolarFlowNotReadyError: Controls are disabled or the session
+                is not ready.
+            SolarFlowConnectionError: The write failed or the session
+                failed while waiting for the acknowledgement.
+            SolarFlowTimeoutError: The acknowledgement exceeds
+                ``response_timeout``.
+            SolarFlowCommandError: The device rejected the write.
+        """
         limits = self._resolve_limits()
         if not 0 <= value <= limits.max_min_soc:
             raise SolarFlowValidationError(
@@ -582,6 +690,27 @@ class SolarFlowClient:
         await self._request_write("minSoc", value * 10)
 
     async def set_soc(self, value: int) -> None:
+        """Set the target state of charge.
+
+        The device stores the value as per-mille; the percent value given
+        here is multiplied by 10 on the wire.
+
+        Args:
+            value: Target SOC in percent, between the model's
+                ``min_target_soc`` (70 for the SolarFlow 2400AC default)
+                and 100.
+
+        Raises:
+            SolarFlowValidationError: The value is outside the model
+                bounds.
+            SolarFlowNotReadyError: Controls are disabled or the session
+                is not ready.
+            SolarFlowConnectionError: The write failed or the session
+                failed while waiting for the acknowledgement.
+            SolarFlowTimeoutError: The acknowledgement exceeds
+                ``response_timeout``.
+            SolarFlowCommandError: The device rejected the write.
+        """
         limits = self._resolve_limits()
         if not limits.min_target_soc <= value <= 100:
             raise SolarFlowValidationError(
@@ -590,6 +719,22 @@ class SolarFlowClient:
         await self._request_write("socSet", value * 10)
 
     async def set_ac_mode(self, value: AcMode | int) -> None:
+        """Set the AC operating mode.
+
+        Args:
+            value: ``AcMode.CHARGING`` (1) or ``AcMode.DISCHARGING`` (2);
+                plain ints are accepted.
+
+        Raises:
+            SolarFlowValidationError: The value is not a known AC mode.
+            SolarFlowNotReadyError: Controls are disabled or the session
+                is not ready.
+            SolarFlowConnectionError: The write failed or the session
+                failed while waiting for the acknowledgement.
+            SolarFlowTimeoutError: The acknowledgement exceeds
+                ``response_timeout``.
+            SolarFlowCommandError: The device rejected the write.
+        """
         try:
             mode = AcMode(value)
         except ValueError as err:
