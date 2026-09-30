@@ -94,6 +94,21 @@ def test_parse_advertisement_ignores_empty_identifier() -> None:
     assert parse_advertisement("AA", {0x4F48: b"\x16"}) is None
 
 
+@pytest.mark.parametrize(
+    "manufacturer_data",
+    [{}, {0x1234: b"FOREIGN"}, {0x1234: b"FOREIGN", 0x4F48: b"VALID\x16"}],
+)
+def test_parse_advertisement_requires_solarflow_manufacturer_id(
+    manufacturer_data: dict[int, bytes],
+) -> None:
+    result = parse_advertisement("AA", manufacturer_data)
+    if 0x4F48 in manufacturer_data:
+        assert result is not None
+        assert result.identifier == "VALID"
+    else:
+        assert result is None
+
+
 def test_decode_json_accepts_bytes_and_bytearray_payloads() -> None:
     assert decode_json(b'{"method":"report"}') == {"method": "report"}
     assert decode_json(bytearray(b'{"method":"report"}')) == {"method": "report"}
@@ -103,6 +118,12 @@ def test_decode_json_rejects_invalid_payloads() -> None:
     for payload in (b"not json", b'"scalar"', b"[1,2]"):
         with pytest.raises(SolarFlowProtocolError):
             decode_json(payload)
+
+
+@pytest.mark.parametrize("payload", [b'"scalar"', b"[1,2]"])
+def test_decode_json_rejects_valid_non_object_payloads(payload: bytes) -> None:
+    with pytest.raises(SolarFlowProtocolError, match="not an object"):
+        decode_json(payload)
 
 
 def test_decode_json_enforces_payload_size_ceiling() -> None:
