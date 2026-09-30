@@ -544,11 +544,7 @@ class SolarFlowClient:
     def _refresh_status(self) -> None:
         if self.status is ConnectionStatus.DISCONNECTED or not self.protocol_ready:
             return
-        self.status = (
-            ConnectionStatus.READY
-            if self.state.smart_mode == 1
-            else ConnectionStatus.PROTOCOL_READY
-        )
+        self.status = ConnectionStatus.READY
 
     async def _request_write(self, property_name: str, value: int) -> None:
         if not self.allow_control:

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer pull them in; the probe and test scripts need `uv sync` with
   the dev group.
 - bleak is capped below 4.
+- The session becomes `READY` (and controls are allowed) once the
+  handshake completes and the first report arrives. The previous
+  requirement that the device report `smartMode: 1` is gone: the
+  hardware accepts and acknowledges writes with smart mode off.
 
 ### Added
 

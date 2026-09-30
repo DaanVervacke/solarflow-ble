@@ -723,7 +723,7 @@ async def test_reconnect_discards_stale_messages_and_session_state() -> None:
 
     await client.connect()
 
-    assert client.ready is False
+    assert client.ready
     assert client.protocol_ready
     assert client.device_id == "DEVICE-2"
     assert client.state.device_id == "DEVICE-2"
@@ -867,12 +867,12 @@ async def test_message_ids_continue_across_reconnect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_captured_report_stream_stays_protocol_ready_and_merges_packs() -> None:
+async def test_captured_report_stream_becomes_ready_and_merges_packs() -> None:
     client = SolarFlowClient(
         ReportTransport(), response_timeout=0.1, keepalive_seconds=60
     )
     await client.connect()
-    assert not client.ready
+    assert client.ready
     assert client.protocol_ready
     assert client.state.electric_level == 26
     assert {pack.serial_number for pack in client.state.packs} == {"PACK-1", "PACK-2"}
@@ -959,7 +959,7 @@ async def test_real_device_capture_replays_through_connected_client() -> None:
     assert isinstance(client.last_error, SolarFlowDeviceError)
     assert "40" in str(client.last_error)
     assert client.protocol_ready
-    assert not client.ready
+    assert client.ready
     await client.disconnect()
 
 
@@ -1559,13 +1559,12 @@ async def test_controls_enabled_but_not_ready_are_rejected() -> None:
         initial_read_delay=0,
         allow_control=True,
     )
-    await client.connect()
-    assert client.protocol_ready
-    assert not client.ready
 
     with pytest.raises(SolarFlowNotReadyError, match="not ready"):
         await client.set_input_limit(100)
 
+    await client.connect()
+    assert client.ready
     await client.disconnect()
 
 
@@ -1895,9 +1894,9 @@ async def test_connect_succeeds_without_smart_mode_report() -> None:
     )
     await client.connect()
 
-    assert client.status is ConnectionStatus.PROTOCOL_READY
+    assert client.status is ConnectionStatus.READY
     assert client.protocol_ready
-    assert not client.ready
+    assert client.ready
     assert client.state.electric_level == 26
     await client.disconnect()
 
