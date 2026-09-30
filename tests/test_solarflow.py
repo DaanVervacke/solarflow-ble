@@ -1130,6 +1130,36 @@ async def test_update_callbacks_are_delivered_in_order_and_serialized() -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_handshake_reports_do_not_grow_the_reports_queue() -> None:
+    updates: list[SolarFlowUpdate] = []
+
+    async def callback(update: SolarFlowUpdate) -> None:
+        updates.append(update)
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        update_callback=callback,
+    )
+    await client.connect()
+    updates.clear()
+
+    for _ in range(100):
+        await client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","properties":{"electricLevel":26}}',
+        )
+
+    assert client._reports.qsize() == 0
+    assert len(updates) == 100
+    assert all(update.raw_message["method"] == "report" for update in updates)
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_mid_session_error_sets_last_error_and_reaches_callback() -> None:
     updates: list[SolarFlowUpdate] = []
 

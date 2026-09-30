@@ -100,6 +100,7 @@ class SolarFlowClient:
         self._write_results: asyncio.Queue[dict[str, Any] | _SessionClosed] = (
             asyncio.Queue()
         )
+        self._reports_wait_active = False
         self._keepalive_task: asyncio.Task[None] | None = None
         self._processing_chain: asyncio.Task[None] | None = None
         self._session_failure: Exception | None = None
@@ -124,6 +125,15 @@ class SolarFlowClient:
             self._reset_session()
             self._session_failure = None
             self.last_error = None
+            # Queue reports only while the handshake waits consume them:
+            # afterwards state is applied and delivered through
+            # update_callback, so a device reporting every few seconds
+            # cannot grow the queue without bound. Anything left in the
+            # queue from an earlier session is stale before the window
+            # opens.
+            while not self._reports.empty():
+                self._reports.get_nowait()
+            self._reports_wait_active = True
             try:
                 await self.transport.connect()
                 self.status = ConnectionStatus.CONNECTED
@@ -144,6 +154,7 @@ class SolarFlowClient:
                     self._build_request("read", {"properties": ["getAll"]})
                 )
                 await self._wait_for_initial_reports()
+                self._reports_wait_active = False
                 self._refresh_status()
                 self._keepalive_task = asyncio.create_task(self._keepalive())
             except BaseException:
@@ -181,6 +192,7 @@ class SolarFlowClient:
     def _reset_session(self) -> None:
         self._reports = asyncio.Queue()
         self._write_results = asyncio.Queue()
+        self._reports_wait_active = False
         self._processing_chain = None
         self.state = SolarFlowState()
         self.device_id = self._target_device_id
@@ -266,7 +278,7 @@ class SolarFlowClient:
             await self._handle_session_failure(err)
             return
         if method == "BLESPP":
-            await self._reports.put(message)
+            await self._enqueue_report(message)
             return
         await self._apply_message(message, method)
         self._refresh_status()
@@ -277,9 +289,19 @@ class SolarFlowClient:
             except Exception:
                 _LOGGER.exception("SolarFlow update callback failed")
 
+    async def _enqueue_report(self, message: dict[str, Any]) -> None:
+        """Queue a report for a handshake wait to consume.
+
+        Report messages are queued only while the handshake waits are
+        actively consuming the queue: afterwards nothing drains it, so
+        an always-reporting device would grow it without bound.
+        """
+        if self._reports_wait_active:
+            await self._reports.put(message)
+
     async def _apply_message(self, message: dict[str, Any], method: str | None) -> None:
         if method in {"getInfo-rsp", "read_reply"}:
-            await self._reports.put(message)
+            await self._enqueue_report(message)
         elif method == "report":
             properties = message.get("properties")
             if isinstance(properties, dict):
@@ -288,14 +310,14 @@ class SolarFlowClient:
                 if "writeRsp" in properties:
                     await self._write_results.put(message)
             self.state = self.state.with_packs(message)
-            await self._reports.put(message)
+            await self._enqueue_report(message)
         elif method == "error":
             if self.connected:
                 self.last_error = SolarFlowDeviceError(
                     f"SolarFlow reported error: {message.get('data')}"
                 )
                 _LOGGER.warning("SolarFlow device error: %s", message.get("data"))
-            await self._reports.put(message)
+            await self._enqueue_report(message)
 
     async def _write(self, message: dict[str, Any]) -> None:
         await self.transport.write_gatt_char(
