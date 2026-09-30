@@ -12,6 +12,9 @@ wheels/
 htmlcov/
 coverage.xml
 
+# Sphinx build output
+docs/_build/
+
 # Local standalone client credentials and device settings
 scripts/test_solarflow_client.local.json
 
