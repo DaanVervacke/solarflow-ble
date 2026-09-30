@@ -45,6 +45,23 @@ Control limits
 .. autoclass:: solarflow_ble.SolarFlowLimits
    :members:
 
+.. autodata:: solarflow_ble.DEFAULT_LIMITS
+
+.. autodata:: solarflow_ble.MODEL_LIMITS
+
+.. autodata:: solarflow_ble.MODEL_SOLARFLOW_2400AC
+
+.. autodata:: solarflow_ble.MODEL_SOLARFLOW_2400AC_PRODUCT_KEY
+
+Callbacks
+---------
+
+.. autodata:: solarflow_ble.NotificationCallback
+
+.. autodata:: solarflow_ble.UpdateCallback
+
+.. autodata:: solarflow_ble.ConnectionLostCallback
+
 Protocol helpers
 ----------------
 

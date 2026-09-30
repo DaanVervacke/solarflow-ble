@@ -171,7 +171,14 @@ class SolarFlowState:
     raw: dict[str, object] | None = None
 
     def update(self, values: dict[str, object]) -> SolarFlowState:
-        """Apply a plain properties mapping as one report."""
+        """Apply a plain properties mapping as one report.
+
+        Args:
+            values: Raw ``properties`` mapping from one report message.
+
+        Returns:
+            The reconstructed state with the report applied.
+        """
         return self.with_report({"properties": values})
 
     def with_report(self, message: dict[str, object]) -> SolarFlowState:
@@ -181,6 +188,12 @@ class SolarFlowState:
         per-report hot path rebuilds the state once instead of four
         times. Identity is only applied when the report carries a
         properties object, matching the historical composition.
+
+        Args:
+            message: One decoded report message.
+
+        Returns:
+            The reconstructed state with the report applied.
         """
         changes: dict[str, Any] = {}
         properties = message.get("properties")
@@ -217,7 +230,15 @@ class SolarFlowState:
         return replace(self, **changes)
 
     def with_identity(self, message: dict[str, object]) -> SolarFlowState:
-        """Apply the deviceId and productKey a message carries, if any."""
+        """Apply the deviceId and productKey a message carries, if any.
+
+        Args:
+            message: One decoded report message.
+
+        Returns:
+            The reconstructed state, unchanged when the message
+            carries neither identity field.
+        """
         device_id = message.get("deviceId")
         product_key = message.get("productKey")
         return replace(
@@ -229,7 +250,15 @@ class SolarFlowState:
         )
 
     def with_packs(self, message: dict[str, object]) -> SolarFlowState:
-        """Merge the packData entries a message carries, if any."""
+        """Merge the packData entries a message carries, if any.
+
+        Args:
+            message: One decoded report message.
+
+        Returns:
+            The reconstructed state, unchanged when the message
+            carries no packData list.
+        """
         raw_packs = message.get("packData")
         if not isinstance(raw_packs, list):
             return self
