@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
@@ -1433,6 +1433,80 @@ async def test_post_handshake_reports_do_not_grow_the_reports_queue() -> None:
     assert len(updates) == 100
     assert all(update.raw_message["method"] == "report" for update in updates)
     await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_notifications_are_drained_without_per_message_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: list[object] = []
+    original_create_task = asyncio.create_task
+
+    def spy_create_task(
+        coro: Coroutine[Any, Any, Any], **kwargs: Any
+    ) -> asyncio.Task[Any]:
+        created.append(coro)
+        return original_create_task(coro, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_task", spy_create_task)
+    _, client = await _connected_control_client()
+
+    baseline = len(created)
+    for _ in range(10):
+        await client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","properties":{"electricLevel":26}}',
+        )
+
+    assert client.state.electric_level == 26
+    assert len(created) == baseline
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_notification_worker_is_torn_down_on_disconnect() -> None:
+    _, client = await _connected_control_client()
+
+    assert client._notification_worker is not None
+    await client._notification(
+        NOTIFY_CHARACTERISTIC_UUID,
+        b'{"method":"report","properties":{"electricLevel":26}}',
+    )
+
+    await client.disconnect()
+
+    assert client._notification_worker is None
+    assert client._notification_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_notification_worker_is_torn_down_after_failed_handshake() -> None:
+    transport = FailingTransport("getInfo")
+    client = SolarFlowClient(
+        transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0
+    )
+
+    with pytest.raises(SolarFlowTimeoutError):
+        await client.connect()
+
+    assert client._notification_worker is None
+    assert client._notification_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_drains_queued_notifications_without_losing_waiters() -> None:
+    _, client = await _connected_control_client()
+
+    pending = asyncio.create_task(
+        client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","properties":{"electricLevel":26}}',
+        )
+    )
+    await asyncio.sleep(0)
+    await client.disconnect()
+
+    await asyncio.wait_for(pending, 1)
 
 
 @pytest.mark.asyncio

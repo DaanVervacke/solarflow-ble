@@ -102,7 +102,10 @@ class SolarFlowClient:
         )
         self._reports_wait_active = False
         self._keepalive_task: asyncio.Task[None] | None = None
-        self._processing_chain: asyncio.Task[None] | None = None
+        self._notification_queue: asyncio.Queue[
+            tuple[bytes, asyncio.Future[None]] | None
+        ] = asyncio.Queue()
+        self._notification_worker: asyncio.Task[None] | None = None
         self._session_failure: Exception | None = None
         self._cleanup_done = False
         self._closing = False
@@ -140,6 +143,10 @@ class SolarFlowClient:
             try:
                 await self.transport.connect()
                 self.status = ConnectionStatus.CONNECTED
+                self._notification_queue = asyncio.Queue()
+                self._notification_worker = asyncio.create_task(
+                    self._consume_notifications(self._notification_queue)
+                )
                 await self.transport.start_notify(
                     NOTIFY_CHARACTERISTIC_UUID, self._notification
                 )
@@ -193,6 +200,7 @@ class SolarFlowClient:
             await asyncio.gather(self._keepalive_task, return_exceptions=True)
             self._keepalive_task = None
         await self._cleanup_transport()
+        await self._stop_notification_worker()
         self.status = ConnectionStatus.DISCONNECTED
         self._reset_session()
 
@@ -215,7 +223,6 @@ class SolarFlowClient:
         self._reports = asyncio.Queue()
         self._write_results = asyncio.Queue()
         self._reports_wait_active = False
-        self._processing_chain = None
         self.state = SolarFlowState()
         self.device_id = self._target_device_id
 
@@ -244,6 +251,7 @@ class SolarFlowClient:
             await asyncio.gather(keepalive, return_exceptions=True)
         self._keepalive_task = None
         await self._cleanup_transport()
+        await self._stop_notification_worker()
         self._reset_session()
         _LOGGER.warning("SolarFlow session failed: %s", error)
         callback = self.connection_lost_callback
@@ -270,27 +278,68 @@ class SolarFlowClient:
         ) from sentinel.error
 
     async def _notification(self, _characteristic: str, payload: bytes) -> None:
-        # Notifications are processed in arrival order: each processing task
-        # waits for the previous one, so state updates and update callbacks
-        # never overlap or reorder. Awaiting our own task keeps direct
-        # awaited calls synchronous for inline transports and tests.
-        previous = self._processing_chain
-        task = asyncio.create_task(self._process_notification(payload, previous))
-        self._processing_chain = task
-        await task
+        # One long-lived worker applies notifications in arrival order, so
+        # state updates and update callbacks never overlap or reorder.
+        # Awaiting the per-message future keeps direct awaited calls
+        # synchronous for inline transports and tests.
+        if self._notification_worker is None:
+            # Outside a live session there is no worker to order against;
+            # apply inline, as the previous per-message tasks did.
+            await self._process_notification(payload)
+            return
+        done = asyncio.get_running_loop().create_future()
+        await self._notification_queue.put((payload, done))
+        await done
 
-    async def _process_notification(
-        self, payload: bytes, previous: asyncio.Task[None] | None
+    async def _consume_notifications(
+        self, queue: asyncio.Queue[tuple[bytes, asyncio.Future[None]] | None]
     ) -> None:
-        if previous is not None:
+        while True:
+            item = await queue.get()
+            if item is None:
+                return
+            payload, done = item
             try:
-                await previous
+                await self._process_notification(payload)
             except asyncio.CancelledError:
+                if not done.done():
+                    done.set_exception(
+                        SolarFlowConnectionError(
+                            "The SolarFlow session closed while processing "
+                            "a notification"
+                        )
+                    )
                 raise
-            except Exception:
-                # The failed notification already surfaced its error; keep
-                # delivering later notifications in order.
+            except Exception as err:
+                # Surface the failure to the caller of the notification
+                # callback and keep delivering later notifications in order.
                 _LOGGER.exception("SolarFlow notification processing failed")
+                if not done.done():
+                    done.set_exception(err)
+            else:
+                if not done.done():
+                    done.set_result(None)
+
+    async def _stop_notification_worker(self) -> None:
+        """Stop the notification worker after draining queued payloads.
+
+        The sentinel wakes the worker, which applies everything already
+        queued — matching the previous per-message tasks, which always
+        ran to completion — and then exits. The reference is cleared
+        first so notifications arriving after this point apply inline
+        instead of queueing behind the sentinel. When the session
+        failure itself is being handled inside the worker, the worker
+        drains the queue and exits on its own.
+        """
+        worker = self._notification_worker
+        self._notification_worker = None
+        if worker is None:
+            return
+        self._notification_queue.put_nowait(None)
+        if worker is not asyncio.current_task():
+            await asyncio.gather(worker, return_exceptions=True)
+
+    async def _process_notification(self, payload: bytes) -> None:
         try:
             message = decode_json(payload)
             method = message.get("method")
