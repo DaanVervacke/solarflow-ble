@@ -158,6 +158,9 @@ commit the local config or a real PSK.
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the gate, and the pull
+request expectations.
+
 ```bash
 uv sync
 uv run python -m scripts.check
