@@ -103,6 +103,25 @@ class Advertisement:
     address_type: int | None = None
 
 
+def _merged_packs(
+    packs: tuple[BatteryPack, ...], raw_packs: list[Any]
+) -> tuple[BatteryPack, ...]:
+    """Merge raw pack entries into the known packs, keyed by serial number."""
+    known = {pack.serial_number: pack for pack in packs}
+    for raw in raw_packs:
+        if not isinstance(raw, dict) or not isinstance(raw.get("sn"), str):
+            continue
+        serial_number = raw["sn"]
+        current = known.get(serial_number, BatteryPack(serial_number=serial_number))
+        changes = {
+            field: raw[key]
+            for key, field in _PACK_FIELDS.items()
+            if key in raw and _is_int(raw[key])
+        }
+        known[serial_number] = replace(current, **cast(Any, changes))
+    return tuple(known.values())
+
+
 @dataclass(frozen=True, slots=True)
 class SolarFlowState:
     """Latest decoded controller state."""
@@ -144,22 +163,41 @@ class SolarFlowState:
     raw: dict[str, object] | None = None
 
     def update(self, values: dict[str, object]) -> SolarFlowState:
-        changes = {
-            _REPORT_FIELDS[key]: value
-            for key, value in values.items()
-            if key in _REPORT_FIELDS and _is_int(value)
-        }
-        current = replace(self, raw={**(self.raw or {}), **values})
-        current = replace(current, **cast(Any, changes))
-        if (
-            current.pack_input_power is not None
-            and current.output_pack_power is not None
-        ):
-            current = replace(
-                current,
-                battery_power=current.output_pack_power - current.pack_input_power,
+        return self.with_report({"properties": values})
+
+    def with_report(self, message: dict[str, object]) -> SolarFlowState:
+        """Apply one report message with a single reconstruction.
+
+        Combines update(), with_identity(), and with_packs() so the
+        per-report hot path rebuilds the state once instead of four
+        times. Identity is only applied when the report carries a
+        properties object, matching the historical composition.
+        """
+        changes: dict[str, Any] = {}
+        properties = message.get("properties")
+        if isinstance(properties, dict):
+            changes.update(
+                {
+                    _REPORT_FIELDS[key]: value
+                    for key, value in properties.items()
+                    if key in _REPORT_FIELDS and _is_int(value)
+                }
             )
-        return current
+            device_id = message.get("deviceId")
+            if isinstance(device_id, str):
+                changes["device_id"] = device_id
+            product_key = message.get("productKey")
+            if isinstance(product_key, str):
+                changes["product_key"] = product_key
+            pack_input_power = changes.get("pack_input_power", self.pack_input_power)
+            output_pack_power = changes.get("output_pack_power", self.output_pack_power)
+            if pack_input_power is not None and output_pack_power is not None:
+                changes["battery_power"] = output_pack_power - pack_input_power
+            changes["raw"] = {**(self.raw or {}), **properties}
+        raw_packs = message.get("packData")
+        if isinstance(raw_packs, list):
+            changes["packs"] = _merged_packs(self.packs, raw_packs)
+        return replace(self, **changes)
 
     def with_identity(self, message: dict[str, object]) -> SolarFlowState:
         device_id = message.get("deviceId")
@@ -176,19 +214,7 @@ class SolarFlowState:
         raw_packs = message.get("packData")
         if not isinstance(raw_packs, list):
             return self
-        known = {pack.serial_number: pack for pack in self.packs}
-        for raw in raw_packs:
-            if not isinstance(raw, dict) or not isinstance(raw.get("sn"), str):
-                continue
-            serial_number = raw["sn"]
-            current = known.get(serial_number, BatteryPack(serial_number=serial_number))
-            changes = {
-                field: raw[key]
-                for key, field in _PACK_FIELDS.items()
-                if key in raw and _is_int(raw[key])
-            }
-            known[serial_number] = replace(current, **cast(Any, changes))
-        return replace(self, packs=tuple(known.values()))
+        return replace(self, packs=_merged_packs(self.packs, raw_packs))
 
 
 @dataclass(frozen=True, slots=True)

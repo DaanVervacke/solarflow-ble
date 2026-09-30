@@ -328,12 +328,9 @@ class SolarFlowClient:
             await self._enqueue_report(message)
         elif method == "report":
             properties = message.get("properties")
-            if isinstance(properties, dict):
-                self.state = self.state.update(properties)
-                self.state = self.state.with_identity(message)
-                if "writeRsp" in properties:
-                    await self._write_results.put(message)
-            self.state = self.state.with_packs(message)
+            if isinstance(properties, dict) and "writeRsp" in properties:
+                await self._write_results.put(message)
+            self.state = self.state.with_report(message)
             await self._enqueue_report(message)
         elif method == "error":
             if self.connected:

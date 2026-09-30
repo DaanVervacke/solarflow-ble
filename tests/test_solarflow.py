@@ -160,6 +160,41 @@ def test_with_packs_skips_malformed_pack_entries() -> None:
     assert state.packs[0].soc_level == 25
 
 
+def test_with_packs_without_pack_data_returns_state_unchanged() -> None:
+    state = SolarFlowState().with_identity({"deviceId": "DEVICE-1"})
+    assert state.with_packs({}) is state
+
+
+def test_with_report_applies_properties_identity_and_packs_in_one_pass() -> None:
+    state = SolarFlowState().update({"packInputPower": 100, "outputPackPower": 400})
+    state = state.with_report(
+        {
+            "deviceId": "DEVICE-1",
+            "productKey": "SOLARFLOW-2400AC",
+            "properties": {"electricLevel": 26, "outputPackPower": 500},
+            "packData": [{"sn": "PACK-1", "socLevel": 25}],
+        }
+    )
+    assert state.device_id == "DEVICE-1"
+    assert state.product_key == "SOLARFLOW-2400AC"
+    assert state.electric_level == 26
+    assert state.pack_input_power == 100
+    assert state.output_pack_power == 500
+    assert state.battery_power == 400
+    assert [pack.serial_number for pack in state.packs] == ["PACK-1"]
+    assert state.packs[0].soc_level == 25
+
+
+def test_with_report_without_properties_keeps_identity_and_merges_packs() -> None:
+    state = SolarFlowState().with_identity({"deviceId": "DEVICE-1"})
+    state = state.with_report(
+        {"deviceId": "DEVICE-2", "packData": [{"sn": "PACK-1", "socLevel": 25}]}
+    )
+    assert state.device_id == "DEVICE-1"
+    assert [pack.serial_number for pack in state.packs] == ["PACK-1"]
+    assert state.packs[0].soc_level == 25
+
+
 class FakeTransport:
     def __init__(self, write_response: int | None = None) -> None:
         self.writes: list[bytes] = []
