@@ -450,6 +450,37 @@ class FakeClock:
         self.now += seconds
 
 
+@pytest.mark.asyncio
+async def test_scan_for_target_returns_the_match_callback_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def sleep(_seconds: float) -> None:
+        pass
+
+    monkeypatch.setattr(_MODULE.asyncio, "sleep", sleep)
+    device = SimpleNamespace(address="AA:BB", name="SolarFlow")
+    advertisement = SimpleNamespace(manufacturer_data={0x4F48: b"IDENT\x16"})
+    scanner = SimpleNamespace(
+        discovered_devices_and_advertisement_data={"device": (device, advertisement)}
+    )
+    manager = SimpleNamespace(async_current_scanners=lambda: [scanner])
+    offered: list[tuple[object, object]] = []
+
+    def lookup() -> object:
+        return None
+
+    def match(found: object, found_advertisement: object) -> object:
+        offered.append((found, found_advertisement))
+        return found
+
+    result = await _MODULE.scan_for_target(
+        manager, lookup=lookup, match=match, scan_seconds=1
+    )
+
+    assert result is device
+    assert offered == [(device, advertisement)]
+
+
 def test_find_device_scan_window_excludes_warmup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

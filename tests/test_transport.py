@@ -177,3 +177,109 @@ async def test_disconnect_cancels_and_awaits_blocked_notification_callbacks() ->
     assert transport._client is None
     assert not transport._notification_tasks
     await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_client_property_raises_when_disconnected() -> None:
+    transport = BleakTransport(MagicMock(), client_factory=MagicMock())
+
+    with pytest.raises(RuntimeError, match="not connected"):
+        await transport.write_gatt_char("char", b"payload")
+
+
+@pytest.mark.asyncio
+async def test_connect_reuses_an_already_connected_client() -> None:
+    client = MagicMock()
+    client.is_connected = True
+    device = MagicMock()
+    transport = BleakTransport(device, client_factory=MagicMock(return_value=client))
+
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ) as retry_connector:
+        await transport.connect()
+        await transport.connect()
+
+    retry_connector.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_notifications_are_dropped_after_disconnect() -> None:
+    client = MagicMock()
+    client.is_connected = True
+    client.start_notify = AsyncMock()
+    client.disconnect = AsyncMock()
+    transport = BleakTransport(
+        MagicMock(), client_factory=MagicMock(return_value=client)
+    )
+    received: list[bytes] = []
+
+    async def callback(_characteristic: str, payload: bytes) -> None:
+        received.append(payload)
+
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ):
+        await transport.connect()
+    await transport.start_notify("char", callback)
+    registered_callback = client.start_notify.call_args.args[1]
+
+    await transport.disconnect()
+    registered_callback(MagicMock(uuid="char"), bytearray(b"payload"))
+    await asyncio.sleep(0)
+
+    assert received == []
+
+
+@pytest.mark.asyncio
+async def test_synchronous_notification_callback_is_delivered_inline() -> None:
+    client = MagicMock()
+    client.is_connected = True
+    client.start_notify = AsyncMock()
+    client.disconnect = AsyncMock()
+    transport = BleakTransport(
+        MagicMock(), client_factory=MagicMock(return_value=client)
+    )
+    received: list[bytes] = []
+
+    def callback(_characteristic: str, payload: bytes) -> None:
+        received.append(payload)
+
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ):
+        await transport.connect()
+    await transport.start_notify("char", callback)
+    registered_callback = client.start_notify.call_args.args[1]
+    registered_callback(MagicMock(uuid="char"), bytearray(b"payload"))
+
+    assert received == [b"payload"]
+    assert not transport._notification_tasks
+    await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_stop_notify_is_forwarded_only_while_connected() -> None:
+    client = MagicMock()
+    client.is_connected = True
+    client.stop_notify = AsyncMock()
+    client.disconnect = AsyncMock()
+    transport = BleakTransport(
+        MagicMock(), client_factory=MagicMock(return_value=client)
+    )
+
+    with patch(
+        "solarflow_ble.transport.establish_connection",
+        new=AsyncMock(return_value=client),
+    ):
+        await transport.connect()
+
+    await transport.stop_notify("char")
+    client.stop_notify.assert_awaited_once_with("char")
+
+    await transport.disconnect()
+    await transport.stop_notify("char")
+    client.stop_notify.assert_awaited_once()
