@@ -77,6 +77,30 @@ def test_parse_advertisement() -> None:
     assert result.identifier == "TEST_DEVICE"
 
 
+def test_parse_advertisement_preserves_passthrough_fields() -> None:
+    result = parse_advertisement(
+        "AA",
+        {0x4F48: b"TEST_DEVICE\x16"},
+        rssi=-50,
+        connectable=False,
+        address_type=1,
+    )
+    assert result is not None
+    assert result.address == "AA"
+    assert result.identifier == "TEST_DEVICE"
+    assert result.rssi == -50
+    assert result.connectable is False
+    assert result.address_type == 1
+
+
+def test_parse_advertisement_defaults_to_connectable_without_optional_fields() -> None:
+    result = parse_advertisement("AA", {0x4F48: b"TEST_DEVICE"})
+    assert result is not None
+    assert result.rssi is None
+    assert result.connectable is True
+    assert result.address_type is None
+
+
 @pytest.mark.parametrize("payload", [b"\xff", b"VALID\xff", b"\xff\x16"])
 def test_parse_advertisement_ignores_malformed_identifier(payload: bytes) -> None:
     assert parse_advertisement("AA", {0x4F48: payload}) is None
