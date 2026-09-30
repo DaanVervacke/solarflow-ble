@@ -1,16 +1,26 @@
 # solarflow-ble
 
-Async Python library for Zendure SolarFlow devices over Bluetooth Low Energy.
-The protocol work builds on [esphome-solarflow-ble](https://github.com/krumpholz/esphome-solarflow-ble)
-and reverse engineering of the Zendure Android app.
+[![Check](https://github.com/DaanVervacke/solarflow-ble/actions/workflows/check.yml/badge.svg)](https://github.com/DaanVervacke/solarflow-ble/actions/workflows/check.yml)
+[![PyPI version](https://img.shields.io/pypi/v/solarflow-ble.svg)](https://pypi.org/project/solarflow-ble/)
+[![Python versions](https://img.shields.io/pypi/pyversions/solarflow-ble.svg)](https://pypi.org/project/solarflow-ble/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-The library has been tested with a SolarFlow 2400AC through a Home Assistant
-Connect AUX-2 Bluetooth proxy. It requires Python 3.14 or newer.
+Async Python library for Zendure SolarFlow devices over Bluetooth Low Energy.
+Requires Python >= 3.14.
+
+> Unofficial and reverse-engineered: not endorsed by Zendure, and it may
+> break without notice whenever Zendure changes their firmware.
+
+The protocol work builds on
+[esphome-solarflow-ble](https://github.com/krumpholz/esphome-solarflow-ble)
+and reverse engineering of the Zendure Android app. The library has been
+tested with a SolarFlow 2400AC through a Home Assistant Connect AUX-2
+Bluetooth proxy.
 
 ## Install
 
 ```bash
-uv add solarflow-ble
+pip install solarflow-ble
 ```
 
 ## Documentation
@@ -18,7 +28,7 @@ uv add solarflow-ble
 The API reference is hosted at
 [solarflow-ble.readthedocs.io](https://solarflow-ble.readthedocs.io/).
 
-## Library usage
+## Usage
 
 `SolarFlowClient` accepts an injected `BleTransport`. Tests can use a fake
 transport without Bluetooth hardware.

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Align the README layout with aioengiebelgium: badges, an unofficial-and-reverse-engineered disclaimer, and a pip install command. The pyproject now carries the documentation URL.
+
 ## [0.2.1] - 2026-09-30
 
 ### Documentation
