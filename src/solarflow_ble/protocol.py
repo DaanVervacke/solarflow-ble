@@ -38,7 +38,7 @@ def parse_advertisement(
 def decode_json(payload: bytes | bytearray) -> dict[str, Any]:
     """Decode one JSON notification."""
     try:
-        value = json.loads(bytes(payload))
+        value = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise SolarFlowProtocolError("Invalid SolarFlow JSON payload") from err
     if not isinstance(value, dict):

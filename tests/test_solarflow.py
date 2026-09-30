@@ -30,6 +30,7 @@ from solarflow_ble.exceptions import (
     SolarFlowTimeoutError,
     SolarFlowValidationError,
 )
+from solarflow_ble.protocol import decode_json
 
 
 def test_parse_advertisement() -> None:
@@ -53,6 +54,17 @@ def test_parse_advertisement_preserves_valid_identifier(payload: bytes) -> None:
 def test_parse_advertisement_ignores_empty_identifier() -> None:
     assert parse_advertisement("AA", {0x4F48: b""}) is None
     assert parse_advertisement("AA", {0x4F48: b"\x16"}) is None
+
+
+def test_decode_json_accepts_bytes_and_bytearray_payloads() -> None:
+    assert decode_json(b'{"method":"report"}') == {"method": "report"}
+    assert decode_json(bytearray(b'{"method":"report"}')) == {"method": "report"}
+
+
+def test_decode_json_rejects_invalid_payloads() -> None:
+    for payload in (b"not json", b'"scalar"', b"[1,2]"):
+        with pytest.raises(SolarFlowProtocolError):
+            decode_json(payload)
 
 
 def test_state_derives_battery_power() -> None:
