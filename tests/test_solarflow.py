@@ -201,7 +201,11 @@ class FakeTransport:
                     json.dumps(
                         {
                             "method": "report",
-                            "properties": {"writeRsp": self.write_response},
+                            "messageId": message["messageId"],
+                            "properties": {
+                                **message["properties"],
+                                "writeRsp": self.write_response,
+                            },
                         }
                     ).encode(),
                 )
@@ -972,6 +976,23 @@ async def test_control_write_without_acknowledgement_times_out() -> None:
         await client.set_input_limit(100)
 
     assert len(transport.writes) == 4
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_stale_write_acknowledgement_does_not_satisfy_current_write() -> None:
+    _, client = await _connected_control_client(write_response=None)
+    await client._write_results.put(
+        {
+            "method": "report",
+            "messageId": 999,
+            "properties": {"outputLimit": 200, "writeRsp": 0},
+        }
+    )
+
+    with pytest.raises(SolarFlowTimeoutError, match="inputLimit acknowledgement"):
+        await client.set_input_limit(100)
+
     await client.disconnect()
 
 

@@ -443,19 +443,30 @@ class SolarFlowClient:
             raise SolarFlowNotReadyError("SolarFlow controls are not ready")
         async with self._lock:
             self._raise_if_session_failed()
+            request = self._build_request(
+                "write", {"properties": {property_name: value}}
+            )
             try:
-                await self._write(
-                    self._build_request("write", {"properties": {property_name: value}})
-                )
+                await self._write(request)
             except Exception as err:
                 await self._handle_session_failure(err)
                 raise SolarFlowConnectionError(
                     f"Writing {property_name} to SolarFlow failed"
                 ) from err
+            message_id = request["messageId"]
 
             def accept(response: dict[str, Any]) -> bool:
                 properties = response.get("properties")
                 if not isinstance(properties, dict) or "writeRsp" not in properties:
+                    return False
+                # Correlate the acknowledgement with this request so a
+                # late writeRsp from an earlier, timed-out write cannot
+                # satisfy this wait.
+                echoed_id = response.get("messageId")
+                correlated = property_name in properties or (
+                    echoed_id is not None and str(echoed_id) == str(message_id)
+                )
+                if not correlated:
                     return False
                 if properties["writeRsp"] != 0:
                     raise SolarFlowCommandError(f"SolarFlow rejected {property_name}")
