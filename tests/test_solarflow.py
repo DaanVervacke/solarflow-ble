@@ -798,6 +798,90 @@ async def test_captured_report_stream_stays_protocol_ready_and_merges_packs() ->
 
 
 @pytest.mark.asyncio
+async def test_real_device_capture_replays_through_connected_client() -> None:
+    fixture = Path(__file__).parent / "fixtures" / "solarflow_reports.jsonl"
+    records = [json.loads(line) for line in fixture.read_text().splitlines()]
+    rx_payloads = [
+        json.dumps(record["json"]).encode()
+        for record in records
+        if record["direction"] == "rx"
+    ]
+    assert len(rx_payloads) > 10
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    )
+    await client.connect()
+
+    for payload in rx_payloads:
+        await client._notification(NOTIFY_CHARACTERISTIC_UUID, payload)
+
+    state = client.state
+    assert client.device_id == "DEVICE-1"
+    assert state.device_id == "DEVICE-1"
+    expected_fields = {
+        "electric_level": 26,
+        "smart_mode": 0,
+        "input_limit": 198,
+        "output_limit": 548,
+        "min_soc": 100,
+        "soc_set": 1000,
+        "ac_mode": 2,
+        "ac_status": 0,
+        "data_ready": 1,
+        "grid_state": 1,
+        "fault_level": 3,
+        "soc_limit": 0,
+        "soc_status": 0,
+        "hyper_temperature": 2971,
+        "charge_max_limit": 2400,
+        "pack_input_power": 0,
+        "output_pack_power": 0,
+        "output_home_power": 0,
+        "remain_out_time": 59940,
+        "battery_power": 0,
+        "grid_input_power": 0,
+        "solar_input_power": 0,
+        "solar_power_1": 0,
+        "solar_power_6": 0,
+        "grid_off_power": 0,
+    }
+    for field, value in expected_fields.items():
+        assert getattr(state, field) == value, field
+    assert "pass" not in (state.raw or {})
+    assert [pack.serial_number for pack in state.packs] == [
+        "PACK-1",
+        "PACK-2",
+        "PACK-3",
+    ]
+    expected_pack_fields = {
+        "pack_type": 5,
+        "soc_level": 26,
+        "state": 0,
+        "power": 0,
+        "max_temp": 2961,
+        "total_voltage": 4760,
+        "battery_current": 0,
+        "max_voltage": 318,
+        "min_voltage": 317,
+        "software_version": 4109,
+        "heat_state": 0,
+    }
+    for pack in state.packs:
+        for field, value in expected_pack_fields.items():
+            assert getattr(pack, field) == value, (pack.serial_number, field)
+    assert isinstance(client.last_error, SolarFlowDeviceError)
+    assert "40" in str(client.last_error)
+    assert client.protocol_ready
+    assert not client.ready
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_device_error_report_is_exposed() -> None:
     transport = FakeTransport()
     client = SolarFlowClient(transport, response_timeout=0.1, keepalive_seconds=60)
