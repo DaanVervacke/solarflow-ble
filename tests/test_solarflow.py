@@ -126,6 +126,40 @@ def test_pack_fields_merge_across_partial_pack_data_records() -> None:
     assert packs["PACK-2"].power == 250
 
 
+def test_report_string_and_boolean_values_are_dropped() -> None:
+    state = SolarFlowState().update(
+        {"electricLevel": "25", "smartMode": True, "inputLimit": 30}
+    )
+    assert state.electric_level is None
+    assert state.smart_mode is None
+    assert state.input_limit == 30
+
+
+def test_pack_string_and_boolean_values_are_dropped() -> None:
+    state = SolarFlowState().with_packs(
+        {"packData": [{"sn": "PACK-1", "socLevel": "25", "power": True, "state": 2}]}
+    )
+    pack = state.packs[0]
+    assert pack.soc_level is None
+    assert pack.power is None
+    assert pack.state == 2
+
+
+def test_with_packs_skips_malformed_pack_entries() -> None:
+    state = SolarFlowState().with_packs(
+        {
+            "packData": [
+                "not-a-dict",
+                {"sn": 123},
+                {"sn": "PACK-1", "socLevel": 25},
+                {"socLevel": 40},
+            ]
+        }
+    )
+    assert [pack.serial_number for pack in state.packs] == ["PACK-1"]
+    assert state.packs[0].soc_level == 25
+
+
 class FakeTransport:
     def __init__(self, write_response: int | None = None) -> None:
         self.writes: list[bytes] = []

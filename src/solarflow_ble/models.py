@@ -53,6 +53,11 @@ _PACK_FIELDS = {
 }
 
 
+def _is_int(value: object) -> bool:
+    """Accept wire integers, excluding JSON booleans."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 class AcMode(IntEnum):
     """Known AC modes."""
 
@@ -142,7 +147,7 @@ class SolarFlowState:
         changes = {
             _REPORT_FIELDS[key]: value
             for key, value in values.items()
-            if key in _REPORT_FIELDS and isinstance(value, int)
+            if key in _REPORT_FIELDS and _is_int(value)
         }
         current = replace(self, raw={**(self.raw or {}), **values})
         current = replace(current, **cast(Any, changes))
@@ -178,7 +183,9 @@ class SolarFlowState:
             serial_number = raw["sn"]
             current = known.get(serial_number, BatteryPack(serial_number=serial_number))
             changes = {
-                field: raw[key] for key, field in _PACK_FIELDS.items() if key in raw
+                field: raw[key]
+                for key, field in _PACK_FIELDS.items()
+                if key in raw and _is_int(raw[key])
             }
             known[serial_number] = replace(current, **cast(Any, changes))
         return replace(self, packs=tuple(known.values()))
