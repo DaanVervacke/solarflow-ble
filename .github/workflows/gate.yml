@@ -48,3 +48,6 @@ jobs:
         run: |
           uv build
           python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; names = zipfile.ZipFile(w).namelist(); sys.exit(0 if 'solarflow_ble/py.typed' in names else 'py.typed missing from wheel: ' + w)"
+          uv venv /tmp/wheel-smoke
+          uv pip install --python /tmp/wheel-smoke/bin/python dist/*.whl
+          cd /tmp && /tmp/wheel-smoke/bin/python -c "from solarflow_ble import SolarFlowClient, parse_advertisement"
