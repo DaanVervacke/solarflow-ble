@@ -13,6 +13,11 @@ Connect AUX-2 Bluetooth proxy. It requires Python 3.14 or newer.
 uv add solarflow-ble
 ```
 
+## Documentation
+
+The API reference is hosted at
+[solarflow-ble.readthedocs.io](https://solarflow-ble.readthedocs.io/).
+
 ## Library usage
 
 `SolarFlowClient` accepts an injected `BleTransport`. Tests can use a fake
