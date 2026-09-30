@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Coroutine
 from pathlib import Path
 from typing import Any
 
@@ -600,14 +600,6 @@ class SilentReadTransport(FakeTransport):
         message = json.loads(data)
         if message["method"] == "getInfo":
             await self._emit(callback, b'{"method":"getInfo-rsp"}')
-
-
-async def _wait_until(condition: Callable[[], bool], seconds: float = 1.0) -> None:
-    deadline = asyncio.get_running_loop().time() + seconds
-    while not condition():
-        if asyncio.get_running_loop().time() >= deadline:
-            raise AssertionError(f"condition not met within {seconds} seconds")
-        await asyncio.sleep(0.01)
 
 
 @pytest.mark.asyncio
@@ -1385,9 +1377,11 @@ async def test_disconnect_cancels_blocked_keepalive_write() -> None:
 async def test_keepalive_write_failure_fails_session_and_notifies_caller() -> None:
     transport = LinkLossTransport()
     lost: list[Exception] = []
+    connection_lost = asyncio.Event()
 
     async def on_connection_lost(error: Exception) -> None:
         lost.append(error)
+        connection_lost.set()
 
     client = SolarFlowClient(
         transport,
@@ -1401,8 +1395,9 @@ async def test_keepalive_write_failure_fails_session_and_notifies_caller() -> No
     transport.fail_reads.set()
     client.keepalive_seconds = 0
 
-    await _wait_until(lambda: client.status is ConnectionStatus.DISCONNECTED)
+    await asyncio.wait_for(connection_lost.wait(), 1)
 
+    assert client.status is ConnectionStatus.DISCONNECTED
     assert client._keepalive_task is None
     assert len(lost) == 1
     assert isinstance(lost[0], RuntimeError)
@@ -1650,16 +1645,13 @@ async def test_pending_control_write_fails_fast_when_session_dies() -> None:
     await client.connect()
 
     pending = asyncio.create_task(client.set_input_limit(100))
-    await _wait_until(transport.write_started.is_set)
+    await asyncio.wait_for(transport.write_started.wait(), 1)
     await asyncio.sleep(0)
 
-    loop = asyncio.get_running_loop()
-    start = loop.time()
     await client._notification(NOTIFY_CHARACTERISTIC_UUID, b"{invalid")
     with pytest.raises(SolarFlowConnectionError):
         await asyncio.wait_for(pending, 2.0)
 
-    assert loop.time() - start < 1.0
     assert client.status is ConnectionStatus.DISCONNECTED
 
 
