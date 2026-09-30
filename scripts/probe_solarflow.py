@@ -8,6 +8,7 @@ import importlib.util
 import json
 import logging
 import os
+import sys
 import time
 from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from contextlib import suppress
@@ -20,13 +21,11 @@ import bleak
 import habluetooth
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
-from bleak.exc import BleakError
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
 from bleak_retry_connector import establish_connection
 from solarflow_ble import BleakTransport, SolarFlowClient, __version__
 from solarflow_ble.client import BleTransport, NotificationCallback
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
-from solarflow_ble.exceptions import SolarFlowError
 from solarflow_ble.protocol import parse_advertisement
 
 _LOGGER = logging.getLogger(__name__)
@@ -392,6 +391,10 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _stderr(message: str) -> None:
+    sys.stderr.write(f"{message}\n")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the probe command."""
     args = _parser().parse_args(argv)
@@ -415,7 +418,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
         )
-    except (BleakError, OSError, RuntimeError, SolarFlowError, TimeoutError) as err:
+    except KeyboardInterrupt:
+        _stderr("Interrupted")
+        return 1
+    except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Probe failed: %s", err)
         return 1
     return 0

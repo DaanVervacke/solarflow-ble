@@ -651,3 +651,17 @@ def test_main_reports_probe_errors(
     assert (
         "Probe failed: SolarFlow device was not found through the proxy" in caplog.text
     )
+
+
+def test_main_reports_interruption(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def interrupt(_config: Any) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(_MODULE, "run_probe", interrupt)
+
+    result = main(["--proxy", "proxy.local"])
+
+    assert result == 1
+    assert capsys.readouterr().err == "Interrupted\n"

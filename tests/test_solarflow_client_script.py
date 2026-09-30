@@ -25,6 +25,7 @@ _SPEC.loader.exec_module(_MODULE)
 format_update = _MODULE.format_update
 find_device = _MODULE.find_device
 load_config = _MODULE.load_config
+main = _MODULE.main
 parse_arguments = _MODULE.parse_arguments
 plan_controls = _MODULE.plan_controls
 redact_value = _MODULE.redact_value
@@ -476,3 +477,23 @@ def test_find_device_warms_up_before_discovery_deadline(
 
     assert events[0] == ("sleep", 5.0)
     assert events[1] == ("discover", None)
+
+
+def test_main_reports_client_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def fail(_args: object) -> None:
+        raise TimeoutError("SolarFlow device was not found through the proxy")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(_MODULE, "run", fail)
+
+    result = main(["--proxy", "proxy", "--noise-psk", "psk", "--identifier", "ID"])
+
+    assert result == 1
+    assert (
+        "SolarFlow client test failed: SolarFlow device was not found through "
+        "the proxy" in capsys.readouterr().err
+    )
