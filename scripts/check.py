@@ -25,6 +25,7 @@ COMMANDS = (
     ("tests", ("uv", "run", "coverage", "run", "--branch", "-m", "pytest")),
     ("coverage", ("uv", "run", "coverage", "report", "--show-missing")),
     ("build", ("uv", "build")),
+    ("twine", ("uvx", "twine", "check", "dist/*")),
 )
 
 
