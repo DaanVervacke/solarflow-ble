@@ -20,7 +20,7 @@ from solarflow_ble import (
     parse_advertisement,
 )
 from solarflow_ble.client import NotificationCallback
-from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
+from solarflow_ble.const import MAX_JSON_PAYLOAD_BYTES, NOTIFY_CHARACTERISTIC_UUID
 from solarflow_ble.exceptions import (
     SolarFlowCommandError,
     SolarFlowConnectionError,
@@ -65,6 +65,15 @@ def test_decode_json_rejects_invalid_payloads() -> None:
     for payload in (b"not json", b'"scalar"', b"[1,2]"):
         with pytest.raises(SolarFlowProtocolError):
             decode_json(payload)
+
+
+def test_decode_json_enforces_payload_size_ceiling() -> None:
+    padding = MAX_JSON_PAYLOAD_BYTES - len(b'{"pad":""}')
+    at_ceiling = b'{"pad":"' + b"x" * padding + b'"}'
+    assert len(at_ceiling) == MAX_JSON_PAYLOAD_BYTES
+    assert decode_json(at_ceiling)["pad"] == "x" * padding
+    with pytest.raises(SolarFlowProtocolError, match="size ceiling"):
+        decode_json(b"x" + at_ceiling)
 
 
 def test_state_derives_battery_power() -> None:

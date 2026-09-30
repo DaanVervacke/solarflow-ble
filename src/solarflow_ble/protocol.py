@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from .const import MANUFACTURER_ID
+from .const import MANUFACTURER_ID, MAX_JSON_PAYLOAD_BYTES
 from .exceptions import SolarFlowProtocolError
 from .models import Advertisement
 
@@ -37,6 +37,8 @@ def parse_advertisement(
 
 def decode_json(payload: bytes | bytearray) -> dict[str, Any]:
     """Decode one JSON notification."""
+    if len(payload) > MAX_JSON_PAYLOAD_BYTES:
+        raise SolarFlowProtocolError("SolarFlow payload exceeds the size ceiling")
     try:
         value = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as err:
