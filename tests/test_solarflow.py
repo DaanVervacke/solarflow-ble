@@ -983,7 +983,9 @@ async def test_control_write_acknowledgement_succeeds() -> None:
 async def test_control_write_rejection_raises_command_error() -> None:
     _, client = await _connected_control_client(write_response=1)
 
-    with pytest.raises(SolarFlowCommandError, match="inputLimit"):
+    with pytest.raises(
+        SolarFlowCommandError, match=r"rejected inputLimit \(writeRsp=1\)"
+    ):
         await client.set_input_limit(100)
 
     await client.disconnect()

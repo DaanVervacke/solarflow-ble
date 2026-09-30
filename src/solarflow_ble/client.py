@@ -493,7 +493,10 @@ class SolarFlowClient:
                 if not correlated:
                     return False
                 if properties["writeRsp"] != 0:
-                    raise SolarFlowCommandError(f"SolarFlow rejected {property_name}")
+                    raise SolarFlowCommandError(
+                        f"SolarFlow rejected {property_name} "
+                        f"(writeRsp={properties['writeRsp']})"
+                    )
                 return True
 
             await self._wait_for_response(
