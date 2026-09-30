@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-30
+
 ### Documentation
 
 - Align the README layout with aioengiebelgium: badges, an unofficial-and-reverse-engineered disclaimer, and a pip install command. The pyproject now carries the documentation URL.
+- Document each exception class individually in the API reference and build the docs on the latest Ubuntu LTS image, matching the aioengiebelgium documentation setup.
 
 ## [0.2.1] - 2026-09-30
 
@@ -143,7 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
-[Unreleased]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.1...v0.2.2
 [0.2.0]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.1.1...v0.1.2

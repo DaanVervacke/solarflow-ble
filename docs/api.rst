@@ -70,6 +70,34 @@ Protocol helpers
 Exceptions
 ----------
 
-.. automodule:: solarflow_ble.exceptions
+.. autoclass:: solarflow_ble.SolarFlowError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: solarflow_ble.SolarFlowCommandError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: solarflow_ble.SolarFlowConnectionError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: solarflow_ble.SolarFlowDeviceError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: solarflow_ble.SolarFlowNotReadyError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: solarflow_ble.SolarFlowProtocolError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: solarflow_ble.SolarFlowTimeoutError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: solarflow_ble.SolarFlowValidationError
    :members:
    :show-inheritance:
