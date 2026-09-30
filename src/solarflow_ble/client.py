@@ -177,12 +177,7 @@ class SolarFlowClient:
             self._session_failure = None
             self.last_error = None
             self._cleanup_done = False
-            # Queue reports only while the handshake waits consume them:
-            # afterwards state is applied and delivered through
-            # update_callback, so a device reporting every few seconds
-            # cannot grow the queue without bound. Anything left in the
-            # queue from an earlier session is stale before the window
-            # opens.
+            # Queue reports only while the handshake waits consume them.
             while not self._reports.empty():
                 self._reports.get_nowait()
             self._reports_wait_active = True
@@ -225,9 +220,7 @@ class SolarFlowClient:
         already disconnected.
         """
         async with self._lifecycle_lock:
-            # Mark the close as user-initiated so a session failure that
-            # races this disconnect leaves the cleanup and the
-            # connection-lost notification to it.
+            # Mark the close as user-initiated so a racing session failure defers to it.
             self._closing = True
             try:
                 await self._disconnect_locked()
@@ -290,9 +283,7 @@ class SolarFlowClient:
         self._reports.put_nowait(_SessionClosed(error))
         self._write_results.put_nowait(_SessionClosed(error))
         if self._closing:
-            # A user-initiated disconnect is already tearing the session
-            # down; leave the cleanup and the connection-lost notification
-            # to it.
+            # A user-initiated disconnect owns cleanup and the lost-connection notice.
             return
         # Best-effort cleanup, mirroring _disconnect_locked. The keepalive
         # task cannot be cancelled and awaited when this runs inside it.
@@ -330,13 +321,9 @@ class SolarFlowClient:
         ) from sentinel.error
 
     async def _notification(self, _characteristic: str, payload: bytes) -> None:
-        # One long-lived worker applies notifications in arrival order, so
-        # state updates and update callbacks never overlap or reorder.
-        # Awaiting the per-message future keeps direct awaited calls
-        # synchronous for inline transports and tests.
+        # One worker preserves arrival order; futures keep direct calls synchronous.
         if self._notification_worker is None:
-            # Outside a live session there is no worker to order against;
-            # apply inline, as the previous per-message tasks did.
+            # Outside a live session there is no worker to order against.
             await self._process_notification(payload)
             return
         done = asyncio.get_running_loop().create_future()
@@ -363,8 +350,7 @@ class SolarFlowClient:
                     )
                 raise
             except Exception as err:
-                # Surface the failure to the caller of the notification
-                # callback and keep delivering later notifications in order.
+                # Surface the failure to the caller and keep delivering.
                 _LOGGER.exception("SolarFlow notification processing failed")
                 if not done.done():
                     done.set_exception(err)
@@ -593,9 +579,7 @@ class SolarFlowClient:
                 properties = response.get("properties")
                 if not isinstance(properties, dict) or "writeRsp" not in properties:
                     return False
-                # Correlate the acknowledgement with this request so a
-                # late writeRsp from an earlier, timed-out write cannot
-                # satisfy this wait.
+                # Correlate the ack with this request; stale writeRsp must not match.
                 echoed_id = response.get("messageId")
                 correlated = property_name in properties or (
                     echoed_id is not None and str(echoed_id) == str(message_id)

@@ -202,8 +202,7 @@ class SolarFlowState:
             output_pack_power = changes.get("output_pack_power", self.output_pack_power)
             if pack_input_power is not None and output_pack_power is not None:
                 changes["battery_power"] = output_pack_power - pack_input_power
-            # Keep only known report keys: a hostile peripheral must not
-            # grow raw without limit through unknown properties.
+            # Keep only known report keys so raw cannot grow without limit.
             changes["raw"] = {
                 **(self.raw or {}),
                 **{
