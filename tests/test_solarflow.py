@@ -8,18 +8,23 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import solarflow_ble
 from solarflow_ble import (
     DEFAULT_LIMITS,
     MODEL_LIMITS,
     MODEL_SOLARFLOW_2400AC,
+    AcMode,
     ConnectionStatus,
+    NotificationCallback,
     SolarFlowClient,
     SolarFlowLimits,
     SolarFlowState,
     SolarFlowUpdate,
     parse_advertisement,
 )
-from solarflow_ble.client import NotificationCallback
+from solarflow_ble import client as client_module
+from solarflow_ble import exceptions as exceptions_module
+from solarflow_ble import models as models_module
 from solarflow_ble.const import MAX_JSON_PAYLOAD_BYTES, NOTIFY_CHARACTERISTIC_UUID
 from solarflow_ble.exceptions import (
     SolarFlowCommandError,
@@ -31,6 +36,39 @@ from solarflow_ble.exceptions import (
     SolarFlowValidationError,
 )
 from solarflow_ble.protocol import decode_json
+
+
+def test_package_root_exports_every_all_member() -> None:
+    for name in solarflow_ble.__all__:
+        assert getattr(solarflow_ble, name) is not None, name
+
+
+def test_public_api_surface_covers_exceptions_models_and_callbacks() -> None:
+    expected = {
+        "SolarFlowError",
+        "SolarFlowConnectionError",
+        "SolarFlowTimeoutError",
+        "SolarFlowProtocolError",
+        "SolarFlowCommandError",
+        "SolarFlowValidationError",
+        "SolarFlowNotReadyError",
+        "SolarFlowDeviceError",
+        "AcMode",
+        "BatteryPack",
+        "NotificationCallback",
+        "UpdateCallback",
+        "ConnectionLostCallback",
+    }
+    assert expected <= set(solarflow_ble.__all__)
+    assert (
+        solarflow_ble.SolarFlowConnectionError
+        is exceptions_module.SolarFlowConnectionError
+    )
+    assert solarflow_ble.AcMode is models_module.AcMode
+    assert solarflow_ble.BatteryPack is models_module.BatteryPack
+    assert solarflow_ble.NotificationCallback is client_module.NotificationCallback
+    assert solarflow_ble.UpdateCallback is client_module.UpdateCallback
+    assert solarflow_ble.ConnectionLostCallback is client_module.ConnectionLostCallback
 
 
 def test_parse_advertisement() -> None:
@@ -943,6 +981,29 @@ async def test_control_setters_reject_invalid_upper_power_limit() -> None:
 
     with pytest.raises(SolarFlowValidationError):
         await client.set_output_limit(2401)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [AcMode.CHARGING, AcMode.DISCHARGING])
+async def test_set_ac_mode_accepts_enum_members(mode: AcMode) -> None:
+    transport, client = await _connected_control_client()
+
+    await client.set_ac_mode(mode)
+
+    message = json.loads(transport.writes[-1])
+    assert message["properties"] == {"acMode": int(mode)}
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_set_ac_mode_rejection_lists_the_valid_enum_values() -> None:
+    client = SolarFlowClient(FakeTransport(), allow_control=True)
+    valid = " or ".join(str(member.value) for member in AcMode)
+
+    with pytest.raises(SolarFlowValidationError) as exc_info:
+        await client.set_ac_mode(3)
+
+    assert str(exc_info.value) == f"AC mode must be {valid}"
 
 
 def test_default_limits_match_verified_2400ac_values() -> None:

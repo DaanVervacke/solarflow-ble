@@ -540,12 +540,13 @@ class SolarFlowClient:
             )
         await self._request_write("socSet", value * 10)
 
-    async def set_ac_mode(self, value: int) -> None:
+    async def set_ac_mode(self, value: AcMode | int) -> None:
         try:
-            AcMode(value)
+            mode = AcMode(value)
         except ValueError as err:
-            raise SolarFlowValidationError("AC mode must be 1 or 2") from err
-        await self._request_write("acMode", value)
+            valid = " or ".join(str(member.value) for member in AcMode)
+            raise SolarFlowValidationError(f"AC mode must be {valid}") from err
+        await self._request_write("acMode", int(mode))
 
     async def _keepalive(self) -> None:
         # An abrupt BLE disconnect surfaces through the next failing write,
