@@ -179,8 +179,6 @@ class SolarFlowClient:
             self.last_error = None
             self._cleanup_done = False
             # Queue reports only while the handshake waits consume them.
-            while not self._reports.empty():
-                self._reports.get_nowait()
             self._reports_wait_active = True
             try:
                 await self.transport.connect()

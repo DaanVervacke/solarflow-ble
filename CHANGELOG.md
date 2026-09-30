@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Include the LICENSE file in the source distribution. The wheel already declared MIT metadata, but the sdist shipped no license text.
+
+### Changed
+
+- Remove an unreachable report-drain loop from the connect path. The session reset already installs a fresh report queue, so the loop could never see a message.
+
 ## [0.2.2] - 2026-09-30
 
 ### Documentation

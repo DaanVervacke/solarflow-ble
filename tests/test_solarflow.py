@@ -1065,11 +1065,102 @@ async def test_later_device_id_mismatch_fails_the_session() -> None:
     assert isinstance(lost[0], SolarFlowProtocolError)
 
 
+@pytest.mark.asyncio
+async def test_matching_device_id_report_is_accepted() -> None:
+    transport = FakeTransport()
+    client = SolarFlowClient(
+        transport, response_timeout=0.1, ble_spp_delay=0, initial_read_delay=0
+    )
+    await client.connect()
+
+    await client._notification(
+        NOTIFY_CHARACTERISTIC_UUID,
+        b'{"method":"report","deviceId":"DEVICE-1","properties":{"electricLevel":80}}',
+    )
+
+    assert client.connected
+    assert client.state.electric_level == 80
+    await client.disconnect()
+
+
 def test_message_id_counter_skips_reserved_id_and_is_integer() -> None:
     client = SolarFlowClient(FakeTransport())
     client._message_id = 1008
     assert client._next_message_id() == 1008
     assert client._next_message_id() == 1010
+
+
+def test_require_device_id_without_identity_raises() -> None:
+    client = SolarFlowClient(FakeTransport())
+    with pytest.raises(SolarFlowProtocolError, match="identity"):
+        client._require_device_id()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_response_raises_when_deadline_already_passed() -> None:
+    client = SolarFlowClient(FakeTransport(), response_timeout=0)
+    with pytest.raises(SolarFlowTimeoutError):
+        await client._wait_for_response(
+            client._reports, context="report", accept=lambda message: True
+        )
+
+
+@pytest.mark.asyncio
+async def test_notification_worker_cancellation_fails_pending_payload() -> None:
+    client = SolarFlowClient(FakeTransport())
+    processing_started = asyncio.Event()
+
+    async def slow_process(payload: bytes) -> None:
+        processing_started.set()
+        await asyncio.Event().wait()
+
+    client._process_notification = slow_process  # type: ignore[method-assign]
+    queue: asyncio.Queue[tuple[bytes, asyncio.Future[None]] | None] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    worker = asyncio.create_task(client._consume_notifications(queue))
+    pending = loop.create_future()
+    await queue.put((b"{}", pending))
+    await processing_started.wait()
+    worker.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await worker
+    assert isinstance(pending.exception(), SolarFlowConnectionError)
+
+    processing_started.clear()
+    worker = asyncio.create_task(client._consume_notifications(queue))
+    completed = loop.create_future()
+    completed.set_result(None)
+    await queue.put((b"{}", completed))
+    await processing_started.wait()
+    worker.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await worker
+    assert completed.exception() is None
+
+
+@pytest.mark.asyncio
+async def test_notification_worker_exception_with_completed_future_keeps_running(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = SolarFlowClient(FakeTransport())
+
+    async def failing_process(payload: bytes) -> None:
+        raise RuntimeError("processing failed")
+
+    client._process_notification = failing_process  # type: ignore[method-assign]
+    queue: asyncio.Queue[tuple[bytes, asyncio.Future[None]] | None] = asyncio.Queue()
+    worker = asyncio.create_task(client._consume_notifications(queue))
+    done = asyncio.get_running_loop().create_future()
+    done.set_result(None)
+    await queue.put((b"{}", done))
+    await queue.put(None)
+    await worker
+
+    assert done.exception() is None
+    assert any(
+        "notification processing failed" in record.message for record in caplog.records
+    )
 
 
 def test_invalid_limits_rejected() -> None:
