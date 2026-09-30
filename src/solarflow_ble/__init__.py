@@ -1,5 +1,8 @@
 """Python library for Zendure SolarFlow BLE devices."""
 
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _version
+
 from .client import (
     BleTransport,
     ConnectionLostCallback,
@@ -34,7 +37,11 @@ from .models import (
 from .protocol import parse_advertisement
 from .transport import BleakTransport
 
-__version__ = "0.1.3"
+try:
+    __version__ = _version("solarflow-ble")
+except _PackageNotFoundError:  # pragma: no cover
+    __version__ = "0.0.0"
+
 __all__ = [
     "DEFAULT_LIMITS",
     "MODEL_LIMITS",
@@ -60,5 +67,6 @@ __all__ = [
     "SolarFlowUpdate",
     "SolarFlowValidationError",
     "UpdateCallback",
+    "__version__",
     "parse_advertisement",
 ]
