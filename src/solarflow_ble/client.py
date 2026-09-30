@@ -363,12 +363,12 @@ class SolarFlowClient:
         """Stop the notification worker after draining queued payloads.
 
         The sentinel wakes the worker, which applies everything already
-        queued — matching the previous per-message tasks, which always
-        ran to completion — and then exits. The reference is cleared
-        first so notifications arriving after this point apply inline
-        instead of queueing behind the sentinel. When the session
-        failure itself is being handled inside the worker, the worker
-        drains the queue and exits on its own.
+        queued (matching the previous per-message tasks, which always ran
+        to completion) and then exits. The reference is cleared first so
+        notifications arriving after this point apply inline instead of
+        queueing behind the sentinel. When the session failure itself is
+        being handled inside the worker, the worker drains the queue and
+        exits on its own.
         """
         worker = self._notification_worker
         self._notification_worker = None

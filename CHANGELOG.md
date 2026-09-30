@@ -27,12 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model-aware control limit registry: `SolarFlowLimits`,
   `MODEL_LIMITS`, `MODEL_SOLARFLOW_2400AC`, and `DEFAULT_LIMITS`, plus
   `model=` and `limits=` constructor arguments on `SolarFlowClient`.
-- The SolarFlow 2400 AC's reported product key (`BC8B7F`) resolves the
-  verified limits registry, so the device no longer triggers the
-  unknown-model warning.
   Validation bounds resolve from explicit `limits`, then the registry
   entry for the model (or the `productKey` the device reports), then the
   verified 2400AC default with a one-time warning.
+- The SolarFlow 2400 AC's reported product key (`BC8B7F`) resolves the
+  verified limits registry, so the device no longer triggers the
+  unknown-model warning.
 - Async context manager support on `SolarFlowClient`: `async with
   SolarFlowClient(...)` connects on entry and always disconnects on exit.
 - The full public API is re-exported from the package root, including
