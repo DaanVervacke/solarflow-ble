@@ -882,14 +882,26 @@ async def test_real_device_capture_replays_through_connected_client() -> None:
 
 
 @pytest.mark.asyncio
-async def test_device_error_report_is_exposed() -> None:
-    transport = FakeTransport()
-    client = SolarFlowClient(transport, response_timeout=0.1, keepalive_seconds=60)
-    await transport.start_notify(NOTIFY_CHARACTERISTIC_UUID, client._notification)
-    await client._notification(
-        NOTIFY_CHARACTERISTIC_UUID, b'{"method":"error","data":[{"code":40}]}'
+async def test_device_error_report_sets_last_error_only_while_connected() -> None:
+    error_payload = b'{"method":"error","data":[{"code":40}]}'
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
     )
-    assert client.state.smart_mode is None
+    await client.connect()
+    await client._notification(NOTIFY_CHARACTERISTIC_UUID, error_payload)
+    assert isinstance(client.last_error, SolarFlowDeviceError)
+    assert "40" in str(client.last_error)
+    await client.disconnect()
+
+    offline = SolarFlowClient(FakeTransport())
+    await offline._notification(NOTIFY_CHARACTERISTIC_UUID, error_payload)
+    assert offline.last_error is None
+    assert offline.status is ConnectionStatus.DISCONNECTED
 
 
 @pytest.mark.asyncio
