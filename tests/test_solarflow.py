@@ -441,15 +441,21 @@ class FailingTransport(FakeTransport):
             return
         if message["method"] == "getInfo":
             assert self.callback is not None
-            if self.failure == "getInfo_error":
+            if self.failure in {"getInfo_error", "getInfo_error_then_ok"}:
                 await self._emit(
                     self.callback, b'{"method":"error","data":[{"code":40}]}'
                 )
-                return
+                if self.failure == "getInfo_error":
+                    return
             await self._emit(self.callback, b'{"method":"getInfo-rsp"}')
         if self.failure == "initial" and message["method"] == "read":
             assert self.callback is not None
             await self._emit(self.callback, b'{"method":"error","data":[{"code":40}]}')
+        if self.failure == "getInfo_error_then_ok" and message["method"] == "read":
+            assert self.callback is not None
+            await self._emit(
+                self.callback, b'{"method":"report","properties":{"electricLevel":80}}'
+            )
 
 
 class PreHandshakeTimeoutTransport(FailingTransport):
@@ -773,22 +779,38 @@ async def test_connect_failure_cleans_up_after_initial_report_error() -> None:
         transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0
     )
 
-    with pytest.raises(SolarFlowDeviceError):
+    with pytest.raises(SolarFlowTimeoutError, match="last device error"):
         await client.connect()
 
     assert not client.connected
+    assert isinstance(client.last_error, SolarFlowDeviceError)
     assert transport.stop_notify_calls == 1
     assert transport.disconnect_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_device_error_during_get_info_raises_device_error() -> None:
+async def test_device_error_during_get_info_is_tolerated() -> None:
+    transport = FailingTransport("getInfo_error_then_ok")
+    client = SolarFlowClient(
+        transport, response_timeout=0.5, ble_spp_delay=0, initial_read_delay=0
+    )
+
+    await client.connect()
+
+    assert client.connected
+    assert isinstance(client.last_error, SolarFlowDeviceError)
+    assert "40" in str(client.last_error)
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_device_error_during_get_info_is_quoted_on_timeout() -> None:
     transport = FailingTransport("getInfo_error")
     client = SolarFlowClient(
         transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0
     )
 
-    with pytest.raises(SolarFlowDeviceError):
+    with pytest.raises(SolarFlowTimeoutError, match="last device error"):
         await client.connect()
 
     assert not client.connected

@@ -166,9 +166,10 @@ class SolarFlowClient:
             SolarFlowProtocolError: The handshake data is invalid or the
                 device identity does not match ``device_id``.
             SolarFlowTimeoutError: A handshake step exceeds
-                ``response_timeout``.
-            SolarFlowDeviceError: The device reports an error during the
-                handshake.
+                ``response_timeout``; the message quotes any device error
+                recorded while waiting. Device errors themselves do not
+                abort the handshake and remain available through
+                ``last_error``.
         """
         async with self._lifecycle_lock:
             if self.connected:
@@ -446,22 +447,30 @@ class SolarFlowClient:
         SolarFlowTimeoutError when the response deadline passes and
         SolarFlowConnectionError when the session fails or closes while
         waiting. Messages that ``accept`` rejects are consumed and
-        discarded; ``accept`` may raise to surface a matched error.
+        discarded. A device error recorded while waiting is quoted in
+        the timeout message.
         """
         deadline = asyncio.get_running_loop().time() + self.response_timeout
         while True:
             self._raise_if_session_failed()
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
-                raise SolarFlowTimeoutError(f"Timed out waiting for {context}")
+                raise SolarFlowTimeoutError(self._timeout_message(context))
             try:
                 message = await asyncio.wait_for(queue.get(), remaining)
             except TimeoutError as err:
-                raise SolarFlowTimeoutError(f"Timed out waiting for {context}") from err
+                raise SolarFlowTimeoutError(self._timeout_message(context)) from err
             if isinstance(message, _SessionClosed):
                 self._raise_session_closed(message, sentinel_context or context)
             if accept(message):
                 return message
+
+    def _timeout_message(self, context: str) -> str:
+        """Describe a wait timeout, quoting the last recorded device error."""
+        message = f"Timed out waiting for {context}"
+        if self.last_error is not None:
+            message = f"{message} (last device error: {self.last_error})"
+        return message
 
     async def _wait_for_method(self, method: str) -> dict[str, Any]:
         return await self._wait_for_response(
@@ -517,22 +526,11 @@ class SolarFlowClient:
             message.update(extra)
         return message
 
-    @staticmethod
-    def _accept_method_or_device_error(message: dict[str, Any], method: str) -> bool:
-        """Accept ``method``, raising when the device reported an error."""
-        if message.get("method") == "error":
-            raise SolarFlowDeviceError(
-                f"SolarFlow reported error: {message.get('data')}"
-            )
-        return message.get("method") == method
-
     async def _wait_for_get_info(self) -> None:
         await self._wait_for_response(
             self._reports,
             context="getInfo-rsp",
-            accept=lambda message: self._accept_method_or_device_error(
-                message, "getInfo-rsp"
-            ),
+            accept=lambda message: message.get("method") == "getInfo-rsp",
         )
 
     async def _wait_for_initial_reports(self) -> None:
@@ -540,9 +538,7 @@ class SolarFlowClient:
             self._reports,
             context="initial report state",
             sentinel_context="initial reports",
-            accept=lambda message: self._accept_method_or_device_error(
-                message, "report"
-            ),
+            accept=lambda message: message.get("method") == "report",
         )
 
     def _refresh_status(self) -> None:

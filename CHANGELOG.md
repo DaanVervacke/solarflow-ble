@@ -39,8 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Write acknowledgements are correlated with their request, so a late
   `writeRsp` from an earlier timed-out write no longer satisfies the
   wait.
-- Device errors during the `getInfo` handshake wait surface as
-  `SolarFlowDeviceError` instead of a response timeout.
+- Device errors no longer abort the handshake: they are recorded in
+  `client.last_error` and quoted in the timeout message when a
+  handshake step still times out.
 - Command errors include the device rejection code (`writeRsp`).
 - Session cleanup is idempotent across `disconnect()` and session-failure
   handling; the first path to reach the transport performs the teardown.
