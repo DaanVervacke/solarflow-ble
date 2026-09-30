@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-30
+
+### Documentation
+
+- Hosted API documentation on Read the Docs, built from `main` and
+  release tags with Sphinx warnings treated as build errors.
+- The API reference covers the limit registry constants and the
+  notification, update, and connection-lost callback aliases, and
+  links every documented object to its source.
+- The `SolarFlowState` reconstruction methods document their arguments
+  and return values.
+
 ## [0.2.0] - 2026-09-30
 
 ### Breaking changes
