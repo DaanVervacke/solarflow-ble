@@ -37,9 +37,14 @@ DEFAULT_LIMITS = SolarFlowLimits(
 
 MODEL_SOLARFLOW_2400AC = "solarflow-2400ac"
 
+# Product key the SolarFlow 2400 AC reports in its BLE messages.
+MODEL_SOLARFLOW_2400AC_PRODUCT_KEY = "bc8b7f"
+
 MODEL_LIMITS: Mapping[str, SolarFlowLimits] = MappingProxyType(
     {
         # Verified against a real SolarFlow 2400AC by the library owner.
         MODEL_SOLARFLOW_2400AC: DEFAULT_LIMITS,
+        # Reported by the same verified hardware; ioBroker maps it to the 2400 AC too.
+        MODEL_SOLARFLOW_2400AC_PRODUCT_KEY: DEFAULT_LIMITS,
     }
 )

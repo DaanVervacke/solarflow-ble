@@ -13,6 +13,7 @@ from solarflow_ble import (
     DEFAULT_LIMITS,
     MODEL_LIMITS,
     MODEL_SOLARFLOW_2400AC,
+    MODEL_SOLARFLOW_2400AC_PRODUCT_KEY,
     AcMode,
     ConnectionStatus,
     NotificationCallback,
@@ -1194,7 +1195,10 @@ def test_default_limits_match_verified_2400ac_values() -> None:
         )
         == DEFAULT_LIMITS
     )
-    assert MODEL_LIMITS == {MODEL_SOLARFLOW_2400AC: DEFAULT_LIMITS}
+    assert MODEL_LIMITS == {
+        MODEL_SOLARFLOW_2400AC: DEFAULT_LIMITS,
+        MODEL_SOLARFLOW_2400AC_PRODUCT_KEY: DEFAULT_LIMITS,
+    }
 
 
 @pytest.mark.asyncio
@@ -1288,6 +1292,34 @@ async def test_product_key_resolves_registry_limits_without_warning(
         ).encode(),
     )
     assert client.state.product_key == MODEL_SOLARFLOW_2400AC.upper()
+
+    with caplog.at_level(logging.WARNING, logger="solarflow_ble.client"):
+        await client.set_input_limit(2400)
+        with pytest.raises(SolarFlowValidationError):
+            await client.set_input_limit(2401)
+
+    assert not [
+        record for record in caplog.records if "no verified limits" in record.message
+    ]
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reported_2400ac_product_key_resolves_limits_without_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _, client = await _connected_control_client()
+    await client._notification(
+        NOTIFY_CHARACTERISTIC_UUID,
+        json.dumps(
+            {
+                "method": "report",
+                "productKey": MODEL_SOLARFLOW_2400AC_PRODUCT_KEY.upper(),
+                "properties": {"smartMode": 1},
+            }
+        ).encode(),
+    )
+    assert client.state.product_key == MODEL_SOLARFLOW_2400AC_PRODUCT_KEY.upper()
 
     with caplog.at_level(logging.WARNING, logger="solarflow_ble.client"):
         await client.set_input_limit(2400)

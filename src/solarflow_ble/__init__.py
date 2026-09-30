@@ -24,6 +24,7 @@ from .limits import (
     DEFAULT_LIMITS,
     MODEL_LIMITS,
     MODEL_SOLARFLOW_2400AC,
+    MODEL_SOLARFLOW_2400AC_PRODUCT_KEY,
     SolarFlowLimits,
 )
 from .models import (
@@ -46,6 +47,7 @@ __all__ = [
     "DEFAULT_LIMITS",
     "MODEL_LIMITS",
     "MODEL_SOLARFLOW_2400AC",
+    "MODEL_SOLARFLOW_2400AC_PRODUCT_KEY",
     "AcMode",
     "Advertisement",
     "BatteryPack",
