@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 
+from conftest import FakeBluetoothManager, FakeManager
+
 _SPEC = spec_from_file_location(
     "probe_solarflow", Path(__file__).parent.parent / "scripts" / "probe_solarflow.py"
 )
@@ -307,23 +309,6 @@ async def test_passive_capture_client_name_follows_identity_setting(
 async def test_normal_probe_uses_client_and_logs_summary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    class FakeManager:
-        async def start(self) -> None:
-            pass
-
-        async def stop(self) -> None:
-            pass
-
-    class FakeBluetoothManager:
-        async def async_setup(self) -> None:
-            pass
-
-        def async_current_scanners(self) -> list[Any]:
-            return []
-
-        def async_stop(self) -> None:
-            pass
-
     class FakeTransport:
         def __init__(self, device: Any) -> None:
             self.device = device
@@ -373,23 +358,6 @@ async def test_normal_probe_uses_client_and_logs_summary(
 async def test_failed_normal_probe_preserves_capture_and_disconnects(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    class FakeManager:
-        async def start(self) -> None:
-            pass
-
-        async def stop(self) -> None:
-            pass
-
-    class FakeBluetoothManager:
-        async def async_setup(self) -> None:
-            pass
-
-        def async_current_scanners(self) -> list[Any]:
-            return []
-
-        def async_stop(self) -> None:
-            pass
-
     class FakeTransport:
         def __init__(self, _device: Any) -> None:
             pass

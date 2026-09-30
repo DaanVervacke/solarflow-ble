@@ -10,6 +10,8 @@ import pytest
 from solarflow_ble import SolarFlowState
 from solarflow_ble.models import BatteryPack, ConnectionStatus, SolarFlowUpdate
 
+from conftest import FakeBluetoothManager, FakeManager
+
 _SPEC = spec_from_file_location(
     "solarflow_client_script",
     Path(__file__).parent.parent / "scripts" / "test_solarflow_client.py",
@@ -362,23 +364,6 @@ async def test_run_redacts_summary_state_updates_and_jsonl(
             "credentials": {"token": "secret-token"},
         },
     )
-
-    class FakeManager:
-        async def start(self) -> None:
-            pass
-
-        async def stop(self) -> None:
-            pass
-
-    class FakeBluetoothManager:
-        async def async_setup(self) -> None:
-            pass
-
-        def async_current_scanners(self) -> list[object]:
-            return []
-
-        def async_stop(self) -> None:
-            pass
 
     class FakeTransport:
         def __init__(self, _device: object) -> None:
