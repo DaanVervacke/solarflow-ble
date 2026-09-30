@@ -16,7 +16,14 @@ def parse_advertisement(
     connectable: bool = True,
     address_type: int | None = None,
 ) -> Advertisement | None:
-    """Parse the SolarFlow manufacturer advertisement."""
+    """Parse the SolarFlow manufacturer advertisement.
+
+    Returns None when the SolarFlow manufacturer ID is absent from the
+    advertisement, when the payload does not decode as ASCII, or when
+    the decoded identifier is empty. Callers cannot distinguish a
+    foreign advertisement from a malformed SolarFlow one: both yield
+    None.
+    """
     payload = manufacturer_data.get(MANUFACTURER_ID)
     if payload is None:
         return None
