@@ -525,6 +525,29 @@ class LinkLossTransport(FakeTransport):
         await super().write_gatt_char(characteristic, data, response)
 
 
+class WriteFailureTransport(FakeTransport):
+    """Fake transport whose control writes fail at the link."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stop_notify_calls = 0
+        self.disconnect_calls = 0
+
+    async def disconnect(self) -> None:
+        self.disconnect_calls += 1
+
+    async def stop_notify(self, characteristic: str) -> None:
+        self.stop_notify_calls += 1
+
+    async def write_gatt_char(
+        self, characteristic: str, data: bytes, response: bool = False
+    ) -> None:
+        message = json.loads(data)
+        if message["method"] == "write":
+            raise RuntimeError("BLE write failed")
+        await super().write_gatt_char(characteristic, data, response)
+
+
 class CleanupCountingTransport(FakeTransport):
     """Fake transport that counts cleanup calls and can gate stop_notify."""
 
@@ -1443,6 +1466,174 @@ async def test_double_session_failure_is_idempotent() -> None:
     assert transport.stop_notify_calls == 1
     assert transport.disconnect_calls == 1
     assert client.status is ConnectionStatus.DISCONNECTED
+
+
+@pytest.mark.asyncio
+async def test_connection_lost_callback_failure_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def on_connection_lost(error: Exception) -> None:
+        raise RuntimeError("callback failed")
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        connection_lost_callback=on_connection_lost,
+    )
+    await client.connect()
+
+    with caplog.at_level(logging.ERROR):
+        await client._handle_session_failure(RuntimeError("link lost"))
+
+    assert "SolarFlow connection lost callback failed" in caplog.text
+    assert client.status is ConnectionStatus.DISCONNECTED
+
+
+@pytest.mark.asyncio
+async def test_waits_started_after_session_failure_fail_fast() -> None:
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+    )
+    await client.connect()
+    await client._handle_session_failure(RuntimeError("link lost"))
+
+    with pytest.raises(SolarFlowConnectionError, match="session failed"):
+        await client._wait_for_method("BLESPP")
+
+
+@pytest.mark.asyncio
+async def test_controls_enabled_but_not_ready_are_rejected() -> None:
+    client = SolarFlowClient(
+        NoSmartModeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        allow_control=True,
+    )
+    await client.connect()
+    assert client.protocol_ready
+    assert not client.ready
+
+    with pytest.raises(SolarFlowNotReadyError, match="not ready"):
+        await client.set_input_limit(100)
+
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_control_write_transport_failure_fails_the_session() -> None:
+    transport = WriteFailureTransport()
+    lost: list[Exception] = []
+
+    def on_connection_lost(error: Exception) -> None:
+        lost.append(error)
+
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        allow_control=True,
+        connection_lost_callback=on_connection_lost,
+    )
+    await client.connect()
+
+    with pytest.raises(SolarFlowConnectionError, match="Writing inputLimit"):
+        await client.set_input_limit(100)
+
+    assert client.status is ConnectionStatus.DISCONNECTED
+    assert len(lost) == 1
+    assert isinstance(lost[0], RuntimeError)
+    assert transport.stop_notify_calls == 1
+    assert transport.disconnect_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_non_acknowledgement_message_does_not_satisfy_write_wait() -> None:
+    _, client = await _connected_control_client(write_response=None)
+    await client._write_results.put(
+        {"method": "report", "properties": {"electricLevel": 26}}
+    )
+
+    with pytest.raises(SolarFlowTimeoutError, match="inputLimit acknowledgement"):
+        await client.set_input_limit(100)
+
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_notification_processing_failure_keeps_delivering_notifications(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, client = await _connected_control_client()
+    original = client._process_notification
+    failures = iter((RuntimeError("processing failed"),))
+
+    async def failing(payload: bytes) -> None:
+        failure = next(failures, None)
+        if failure is not None:
+            raise failure
+        await original(payload)
+
+    monkeypatch.setattr(client, "_process_notification", failing)
+
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(RuntimeError, match="processing failed"),
+    ):
+        await client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","properties":{"electricLevel":10}}',
+        )
+
+    assert "SolarFlow notification processing failed" in caplog.text
+
+    await client._notification(
+        NOTIFY_CHARACTERISTIC_UUID,
+        b'{"method":"report","properties":{"electricLevel":26}}',
+    )
+
+    assert client.state.electric_level == 26
+    assert client.status is ConnectionStatus.READY
+    await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_update_callback_failure_is_logged_and_session_survives(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def callback(update: SolarFlowUpdate) -> None:
+        raise RuntimeError("callback failed")
+
+    client = SolarFlowClient(
+        FakeTransport(),
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        update_callback=callback,
+    )
+    await client.connect()
+
+    with caplog.at_level(logging.ERROR):
+        await client._notification(
+            NOTIFY_CHARACTERISTIC_UUID,
+            b'{"method":"report","properties":{"electricLevel":26}}',
+        )
+
+    assert "SolarFlow update callback failed" in caplog.text
+    assert client.state.electric_level == 26
+    assert client.status is ConnectionStatus.READY
+    await client.disconnect()
 
 
 @pytest.mark.asyncio
