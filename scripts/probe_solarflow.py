@@ -23,7 +23,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
 from bleak_retry_connector import establish_connection
-from solarflow_ble import BleakTransport, SolarFlowClient
+from solarflow_ble import BleakTransport, SolarFlowClient, __version__
 from solarflow_ble.client import BleTransport, NotificationCallback
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
 from solarflow_ble.exceptions import SolarFlowError
@@ -364,6 +364,7 @@ async def run_probe(config: ProbeConfig) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument(
         "--proxy",
         default=os.getenv("SOLARFLOW_PROXY"),

@@ -17,7 +17,7 @@ from typing import Any, cast
 import habluetooth
 from bleak.backends.device import BLEDevice
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
-from solarflow_ble import BleakTransport, SolarFlowClient
+from solarflow_ble import BleakTransport, SolarFlowClient, __version__
 from solarflow_ble.models import BatteryPack, SolarFlowState, SolarFlowUpdate
 from solarflow_ble.protocol import parse_advertisement
 
@@ -262,6 +262,7 @@ def plan_controls(
 def build_parser() -> argparse.ArgumentParser:
     """Create the command-line parser."""
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--proxy")
     parser.add_argument("--noise-psk")
