@@ -8,9 +8,7 @@ authors = [{ name = "Daan Vervacke", email = "daan.vervacke@proton.me" }]
 requires-python = ">=3.14"
 dependencies = [
     "bleak>=1.1.1",
-    "bleak-esphome>=4.1.0",
     "bleak-retry-connector>=4.7.1",
-    "habluetooth>=7.0.0",
 ]
 
 [build-system]
@@ -22,7 +20,9 @@ required-version = ">=0.12.5,<0.13.0"
 
 [dependency-groups]
 dev = [
+    "bleak-esphome>=4.1.0",
     "coverage[toml]>=7.15.2",
+    "habluetooth>=7.0.0",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",

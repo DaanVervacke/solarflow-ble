@@ -925,14 +925,14 @@ version = "0.1.3"
 source = { editable = "." }
 dependencies = [
     { name = "bleak" },
-    { name = "bleak-esphome" },
     { name = "bleak-retry-connector" },
-    { name = "habluetooth" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "bleak-esphome" },
     { name = "coverage" },
+    { name = "habluetooth" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -942,14 +942,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bleak", specifier = ">=1.1.1" },
-    { name = "bleak-esphome", specifier = ">=4.1.0" },
     { name = "bleak-retry-connector", specifier = ">=4.7.1" },
-    { name = "habluetooth", specifier = ">=7.0.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bleak-esphome", specifier = ">=4.1.0" },
     { name = "coverage", extras = ["toml"], specifier = ">=7.15.2" },
+    { name = "habluetooth", specifier = ">=7.0.0" },
     { name = "mypy", specifier = ">=2.3.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
