@@ -1451,6 +1451,14 @@ def test_report_mapping_keeps_soc_controls_in_wire_units() -> None:
     assert state.soc_set == 900
 
 
+def test_update_keeps_only_known_keys_in_raw() -> None:
+    state = SolarFlowState().update({"electricLevel": 26, "hostileKey": "payload"})
+    assert state.raw == {"electricLevel": 26}
+
+    state = state.update({"anotherHostileKey": 1})
+    assert state.raw == {"electricLevel": 26}
+
+
 @pytest.mark.asyncio
 async def test_async_context_manager_connects_and_disconnects() -> None:
     transport = FakeTransport()

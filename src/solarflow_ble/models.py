@@ -193,7 +193,16 @@ class SolarFlowState:
             output_pack_power = changes.get("output_pack_power", self.output_pack_power)
             if pack_input_power is not None and output_pack_power is not None:
                 changes["battery_power"] = output_pack_power - pack_input_power
-            changes["raw"] = {**(self.raw or {}), **properties}
+            # Keep only known report keys: a hostile peripheral must not
+            # grow raw without limit through unknown properties.
+            changes["raw"] = {
+                **(self.raw or {}),
+                **{
+                    key: value
+                    for key, value in properties.items()
+                    if key in _REPORT_FIELDS
+                },
+            }
         raw_packs = message.get("packData")
         if isinstance(raw_packs, list):
             changes["packs"] = _merged_packs(self.packs, raw_packs)
