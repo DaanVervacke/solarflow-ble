@@ -104,6 +104,8 @@ class SolarFlowClient:
         self._keepalive_task: asyncio.Task[None] | None = None
         self._processing_chain: asyncio.Task[None] | None = None
         self._session_failure: Exception | None = None
+        self._cleanup_done = False
+        self._closing = False
         self._message_id = 1
 
     @property
@@ -125,6 +127,7 @@ class SolarFlowClient:
             self._reset_session()
             self._session_failure = None
             self.last_error = None
+            self._cleanup_done = False
             # Queue reports only while the handshake waits consume them:
             # afterwards state is applied and delivered through
             # update_callback, so a device reporting every few seconds
@@ -163,7 +166,14 @@ class SolarFlowClient:
 
     async def disconnect(self) -> None:
         async with self._lifecycle_lock:
-            await self._disconnect_locked()
+            # Mark the close as user-initiated so a session failure that
+            # races this disconnect leaves the cleanup and the
+            # connection-lost notification to it.
+            self._closing = True
+            try:
+                await self._disconnect_locked()
+            finally:
+                self._closing = False
 
     async def __aenter__(self) -> Self:
         await self.connect()
@@ -182,12 +192,24 @@ class SolarFlowClient:
             self._keepalive_task.cancel()
             await asyncio.gather(self._keepalive_task, return_exceptions=True)
             self._keepalive_task = None
+        await self._cleanup_transport()
+        self.status = ConnectionStatus.DISCONNECTED
+        self._reset_session()
+
+    async def _cleanup_transport(self) -> None:
+        """Stop notifications and disconnect at most once per session.
+
+        disconnect() and session-failure handling can race; the first
+        path to reach the transport performs the teardown and the other
+        becomes a no-op.
+        """
+        if self._cleanup_done:
+            return
+        self._cleanup_done = True
         with suppress(Exception):
             await self.transport.stop_notify(NOTIFY_CHARACTERISTIC_UUID)
         with suppress(Exception):
             await self.transport.disconnect()
-        self.status = ConnectionStatus.DISCONNECTED
-        self._reset_session()
 
     def _reset_session(self) -> None:
         self._reports = asyncio.Queue()
@@ -208,6 +230,11 @@ class SolarFlowClient:
         # through the recorded session failure instead.
         self._reports.put_nowait(_SessionClosed(error))
         self._write_results.put_nowait(_SessionClosed(error))
+        if self._closing:
+            # A user-initiated disconnect is already tearing the session
+            # down; leave the cleanup and the connection-lost notification
+            # to it.
+            return
         # Best-effort cleanup, mirroring _disconnect_locked. The keepalive
         # task cannot be cancelled and awaited when this runs inside it.
         current = asyncio.current_task()
@@ -216,10 +243,7 @@ class SolarFlowClient:
             keepalive.cancel()
             await asyncio.gather(keepalive, return_exceptions=True)
         self._keepalive_task = None
-        with suppress(Exception):
-            await self.transport.stop_notify(NOTIFY_CHARACTERISTIC_UUID)
-        with suppress(Exception):
-            await self.transport.disconnect()
+        await self._cleanup_transport()
         self._reset_session()
         _LOGGER.warning("SolarFlow session failed: %s", error)
         callback = self.connection_lost_callback

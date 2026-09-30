@@ -371,6 +371,27 @@ class LinkLossTransport(FakeTransport):
         await super().write_gatt_char(characteristic, data, response)
 
 
+class CleanupCountingTransport(FakeTransport):
+    """Fake transport that counts cleanup calls and can gate stop_notify."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stop_notify_calls = 0
+        self.disconnect_calls = 0
+        self.stop_notify_started = asyncio.Event()
+        self.stop_notify_gate: asyncio.Event | None = None
+
+    async def disconnect(self) -> None:
+        self.disconnect_calls += 1
+
+    async def stop_notify(self, characteristic: str) -> None:
+        self.stop_notify_calls += 1
+        self.stop_notify_started.set()
+        gate = self.stop_notify_gate
+        if gate is not None:
+            await gate.wait()
+
+
 class NoSmartModeTransport(FakeTransport):
     """Fake transport whose reports never include smartMode."""
 
@@ -1071,6 +1092,66 @@ async def test_keepalive_write_failure_fails_session_and_notifies_caller() -> No
     assert client._keepalive_task is None
     assert len(lost) == 1
     assert isinstance(lost[0], RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_failure_during_disconnect_skips_connection_lost_callback() -> None:
+    transport = CleanupCountingTransport()
+    transport.stop_notify_gate = asyncio.Event()
+    lost: list[Exception] = []
+
+    def on_connection_lost(error: Exception) -> None:
+        lost.append(error)
+
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        connection_lost_callback=on_connection_lost,
+    )
+    await client.connect()
+
+    disconnecting = asyncio.create_task(client.disconnect())
+    await transport.stop_notify_started.wait()
+    await client._handle_session_failure(RuntimeError("link lost"))
+    transport.stop_notify_gate.set()
+    await disconnecting
+
+    assert lost == []
+    assert transport.stop_notify_calls == 1
+    assert transport.disconnect_calls == 1
+    assert client.status is ConnectionStatus.DISCONNECTED
+
+
+@pytest.mark.asyncio
+async def test_double_session_failure_is_idempotent() -> None:
+    transport = CleanupCountingTransport()
+    lost: list[Exception] = []
+
+    def on_connection_lost(error: Exception) -> None:
+        lost.append(error)
+
+    client = SolarFlowClient(
+        transport,
+        response_timeout=0.1,
+        keepalive_seconds=60,
+        ble_spp_delay=0,
+        initial_read_delay=0,
+        connection_lost_callback=on_connection_lost,
+    )
+    await client.connect()
+
+    await client._handle_session_failure(RuntimeError("first failure"))
+    await client._handle_session_failure(RuntimeError("second failure"))
+
+    assert len(lost) == 1
+    assert isinstance(lost[0], RuntimeError)
+    assert str(lost[0]) == "first failure"
+    assert transport.stop_notify_calls == 1
+    assert transport.disconnect_calls == 1
+    assert client.status is ConnectionStatus.DISCONNECTED
 
 
 @pytest.mark.asyncio
