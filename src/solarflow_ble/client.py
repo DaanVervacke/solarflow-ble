@@ -150,7 +150,7 @@ class SolarFlowClient:
                 )
                 await asyncio.sleep(self.ble_spp_delay)
                 await self._write(self._build_request("getInfo"))
-                await self._wait_for_method("getInfo-rsp")
+                await self._wait_for_get_info()
                 self.status = ConnectionStatus.PROTOCOL_READY
                 await asyncio.sleep(self.initial_read_delay)
                 await self._write(
@@ -433,20 +433,32 @@ class SolarFlowClient:
             message.update(extra)
         return message
 
-    async def _wait_for_initial_reports(self) -> None:
-        def accept(message: dict[str, Any]) -> bool:
-            method = message.get("method")
-            if method == "error":
-                raise SolarFlowDeviceError(
-                    f"SolarFlow reported error: {message.get('data')}"
-                )
-            return method == "report"
+    @staticmethod
+    def _accept_method_or_device_error(message: dict[str, Any], method: str) -> bool:
+        """Accept ``method``, raising when the device reported an error."""
+        if message.get("method") == "error":
+            raise SolarFlowDeviceError(
+                f"SolarFlow reported error: {message.get('data')}"
+            )
+        return message.get("method") == method
 
+    async def _wait_for_get_info(self) -> None:
+        await self._wait_for_response(
+            self._reports,
+            context="getInfo-rsp",
+            accept=lambda message: self._accept_method_or_device_error(
+                message, "getInfo-rsp"
+            ),
+        )
+
+    async def _wait_for_initial_reports(self) -> None:
         await self._wait_for_response(
             self._reports,
             context="initial report state",
             sentinel_context="initial reports",
-            accept=accept,
+            accept=lambda message: self._accept_method_or_device_error(
+                message, "report"
+            ),
         )
 
     def _refresh_status(self) -> None:

@@ -268,6 +268,11 @@ class FailingTransport(FakeTransport):
             return
         if message["method"] == "getInfo":
             assert self.callback is not None
+            if self.failure == "getInfo_error":
+                await self._emit(
+                    self.callback, b'{"method":"error","data":[{"code":40}]}'
+                )
+                return
             await self._emit(self.callback, b'{"method":"getInfo-rsp"}')
         if self.failure == "initial" and message["method"] == "read":
             assert self.callback is not None
@@ -584,6 +589,22 @@ async def test_connect_failure_cleans_up_after_initial_report_error() -> None:
         await client.connect()
 
     assert not client.connected
+    assert transport.stop_notify_calls == 1
+    assert transport.disconnect_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_device_error_during_get_info_raises_device_error() -> None:
+    transport = FailingTransport("getInfo_error")
+    client = SolarFlowClient(
+        transport, response_timeout=0.01, ble_spp_delay=0, initial_read_delay=0
+    )
+
+    with pytest.raises(SolarFlowDeviceError):
+        await client.connect()
+
+    assert not client.connected
+    assert isinstance(client.last_error, SolarFlowDeviceError)
     assert transport.stop_notify_calls == 1
     assert transport.disconnect_calls == 1
 
