@@ -6,6 +6,23 @@ readme = "README.md"
 license = "MIT"
 authors = [{ name = "Daan Vervacke", email = "daan.vervacke@proton.me" }]
 requires-python = ">=3.14"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Hardware",
+    "Typing :: Typed",
+]
+keywords = [
+    "solarflow",
+    "zendure",
+    "ble",
+    "bluetooth",
+    "bleak",
+    "asyncio",
+    "home-assistant",
+]
 dependencies = [
     "bleak>=1.1.1,<4",
     "bleak-retry-connector>=4.7.1",
@@ -28,6 +45,12 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.8",
 ]
+
+[project.urls]
+Homepage = "https://github.com/DaanVervacke/solarflow-ble"
+Repository = "https://github.com/DaanVervacke/solarflow-ble"
+Issues = "https://github.com/DaanVervacke/solarflow-ble/issues"
+Changelog = "https://github.com/DaanVervacke/solarflow-ble/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
