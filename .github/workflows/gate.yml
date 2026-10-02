@@ -15,29 +15,20 @@ jobs:
         python-version: ["3.14", "3.15"]
         resolution: [highest, lowest-direct]
 
-    # Python 3.15 is still pre-release: its legs surface breakage early
-    # without blocking the gate.
     continue-on-error: ${{ matrix.python-version == '3.15' }}
 
     env:
-      # uv >=0.11.7 derives the expected lock resolution from configuration, not
-      # from the lockfile; pin the whole job to the matrix leg's mode.
       UV_RESOLUTION: ${{ matrix.resolution }}
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: ${{ matrix.python-version }}
-          # 3.15 is pre-release; without this the runner cannot provision it.
           allow-prereleases: true
 
-      # SHA-pinned: setup-uv has no moving @v8 tag (dropped as of v8.0.0);
-      # Dependabot bumps the SHA via the trailing version comment.
-      # No version input: setup-uv reads [tool.uv] required-version from
-      # pyproject.toml, which pins the uv CLI to the uv_build compatibility range.
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           enable-cache: true
 

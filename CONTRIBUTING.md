@@ -6,7 +6,7 @@ Python >= 3.14.
 
 ## Setup
 
-Use [uv](https://docs.astral.sh/uv/) (>= 0.12.5, < 0.13) to install the
+Use [uv](https://docs.astral.sh/uv/) (>= 0.12.21, < 0.13) to install the
 environment:
 
 ```bash
@@ -31,7 +31,7 @@ mypy src tests scripts
 coverage run --branch -m pytest
 coverage report
 uv build
-twine check dist/*
+uv audit
 ```
 
 Coverage measures branches in `src/solarflow_ble` and requires 98%. Your
@@ -64,9 +64,9 @@ heading.
 
 ## Commit style
 
-One imperative subject line, no body. Write it as a sentence describing the
-change, for example: `Cap bleak below 4`. Do not use conventional-commit
-prefixes or mention the plan or issue number in the subject.
+One conventional-commit subject line, no body. Write the description as an
+imperative sentence, for example: `chore: cap bleak below 4`. Do not mention
+the plan or issue number in the subject.
 
 ## Deprecation policy
 

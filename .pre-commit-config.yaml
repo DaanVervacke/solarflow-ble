@@ -1,4 +1,3 @@
-# Hook revisions track the ruff version pinned in uv.lock (0.16.8 era).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8

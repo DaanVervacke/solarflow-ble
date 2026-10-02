@@ -4,10 +4,13 @@ build:
   os: ubuntu-lts-latest
   tools:
     python: "3.14"
-  jobs:
-    install:
-      - pip install --upgrade pip
-      - pip install --group docs .
+
+python:
+  install:
+    - method: uv
+      command: sync
+      groups:
+        - docs
 
 sphinx:
   configuration: docs/conf.py

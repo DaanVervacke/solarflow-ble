@@ -20,7 +20,7 @@ Bluetooth proxy.
 ## Install
 
 ```bash
-pip install solarflow-ble
+uv add solarflow-ble
 ```
 
 ## Documentation
@@ -189,7 +189,7 @@ uv run pytest tests/test_solarflow_client_script.py
 ```
 
 The full gate runs a version drift check, format, Ruff, mypy, branch-covered
-tests, coverage, `uv build`, and `twine check` in that order.
+tests, coverage, `uv build`, and `uv audit` in that order.
 
 ## License
 
