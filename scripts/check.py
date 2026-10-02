@@ -25,13 +25,12 @@ COMMANDS = (
     ("tests", ("uv", "run", "coverage", "run", "--branch", "-m", "pytest")),
     ("coverage", ("uv", "run", "coverage", "report", "--show-missing")),
     ("build", ("uv", "build")),
-    ("twine", ("uvx", "twine>=6.1", "check", "dist/*")),
+    ("audit", ("uv", "audit", "--locked", "--preview-features", "audit-command")),
 )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run each gate and stop at the first failure."""
-    # Parse only so --help works and unknown arguments fail fast.
     argparse.ArgumentParser(description=__doc__).parse_args(argv)
     for name, command in COMMANDS:
         print(f"\n==> {name}: {' '.join(command)}", flush=True)
