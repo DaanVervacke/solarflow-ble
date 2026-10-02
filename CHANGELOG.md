@@ -7,21 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Include the LICENSE file in the source distribution. The wheel already declared MIT metadata, but the sdist shipped no license text.
-
-### Changed
-
-- Remove an unreachable report-drain loop from the connect path. The session reset already installs a fresh report queue, so the loop could never see a message.
-
 ### Maintenance
 
-- The toolchain runs on uv end to end: the check gate audits the lockfile with `uv audit`, releases publish with `uv publish` and PEP 740 attestations, and Read the Docs installs through native uv sync.
-- The README installs with `uv add solarflow-ble` and the uv requirement is now 0.12.21.
-- The security workflow keeps bandit and audits the full lock weekly.
-- The lock no longer resolves for Intel Mac development: aioesphomeapi caps cryptography below 49 there, so the lock skips that platform and moves cryptography to 50.0.2, past six published advisories.
-- Commits follow Conventional Commits, matching the other libraries.
+- Complete the uv toolchain migration
+- Migrate the release drafter config and label automation
+- Manage the changelog with git-cliff
 
 ## [0.2.2] - 2026-09-30
 
