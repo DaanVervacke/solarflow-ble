@@ -52,15 +52,16 @@ present:
    guess wire shapes.
 2. The Zendure app contract fixture updated when wire shapes change.
 3. Tests covering the new behavior, including the failure paths.
-4. An entry under `[Unreleased]` in `CHANGELOG.md`.
+4. A conventional commit subject, which git-cliff renders into `CHANGELOG.md`.
 
 ## Changelog
 
-Every user-visible change needs an entry under `[Unreleased]` in
-`CHANGELOG.md`, using the Keep a Changelog categories (`Breaking changes`,
-`Added`, `Changed`, `Removed`, `Fixed`, `Security`, `Documentation`,
-`Maintenance`). Breaking changes must be listed under a `Breaking changes`
-heading.
+`CHANGELOG.md` is generated with git-cliff from conventional commit subjects.
+Never edit it by hand. Features, bug fixes, documentation, and maintenance
+chores reach the changelog through their `feat:`, `fix:`, `docs:`, and
+`chore:` subjects. Regenerate the unreleased section with `git-cliff
+--unreleased --prepend CHANGELOG.md` and commit the result. At release, cut
+the dated section with `git-cliff --tag vX.Y.Z --prepend CHANGELOG.md`.
 
 ## Commit style
 
@@ -71,7 +72,7 @@ the plan or issue number in the subject.
 ## Deprecation policy
 
 - While the project is on 0.x: breaking changes are allowed in minor releases,
-  provided they carry a `Breaking changes` changelog entry.
+  provided their commit subject marks them breaking (`feat!:` or `fix!:`).
 - From 1.0 onwards: deprecated APIs emit a `DeprecationWarning` for at least
   one minor release before being removed in a major release.
 

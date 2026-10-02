@@ -1,0 +1,38 @@
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+"""
+body = """
+{% if version %}## [{{ version | trim_start_matches(pat="v") }}]{% else %}## [Unreleased]{% endif %}\
+{% if timestamp %} - {{ timestamp | date(format="%Y-%m-%d") }}{% endif %}
+
+{% for group, commits in commits | group_by(attribute="group") %}\
+### {{ group }}
+
+{% for commit in commits %}\
+- {{ commit.message | upper_first }}
+{% endfor %}\
+{% endfor %}\
+"""
+trim = true
+sort_commits = "oldest"
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+filter_commits = true
+commit_parsers = [
+    { message = "^chore: release", skip = true },
+    { message = "^chore: regenerate the changelog", skip = true },
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^chore", group = "Maintenance" },
+]
+tag_pattern = "v[0-9].*"
