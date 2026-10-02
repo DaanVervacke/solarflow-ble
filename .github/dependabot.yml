@@ -5,6 +5,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    labels:
+      - dependencies
     # 7-day cooldown: don't update packages published < 7 days ago
     # Mitigates supply chain attacks via malicious updates
     cooldown:
@@ -23,6 +25,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    labels:
+      - dependencies
     cooldown:
       default-days: 7
     # One grouped PR for all action updates, majors included
