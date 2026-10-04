@@ -57,11 +57,14 @@ present:
 ## Changelog
 
 `CHANGELOG.md` is generated with git-cliff from conventional commit subjects.
-Never edit it by hand. Features, bug fixes, documentation, and maintenance
-chores reach the changelog through their `feat:`, `fix:`, `docs:`, and
-`chore:` subjects. Regenerate the unreleased section with `git-cliff
---unreleased --prepend CHANGELOG.md` and commit the result. At release, cut
-the dated section with `git-cliff --tag vX.Y.Z --prepend CHANGELOG.md`.
+Never rewrite entries by hand. Features, bug fixes, documentation, and
+maintenance chores reach the changelog through their `feat:`, `fix:`, `docs:`,
+and `chore:` subjects. Regenerate the unreleased section with
+`git-cliff --unreleased --prepend CHANGELOG.md` and commit the result. At
+release, rename the Unreleased heading to `## [X.Y.Z] - YYYY-MM-DD`, add the
+`[X.Y.Z]:` compare link at the bottom of the file, and point the
+`[Unreleased]:` link at the new tag. Bump the version, commit, and tag
+`vX.Y.Z`.
 
 ## Commit style
 

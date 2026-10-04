@@ -2,7 +2,7 @@ name-template: "v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
 categories:
   - title: Breaking changes
-    semver-increment: major
+    semver-increment: minor
     when:
       labels: [breaking-change]
   - title: New features
