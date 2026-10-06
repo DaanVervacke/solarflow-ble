@@ -55,7 +55,7 @@ async def scan_for_target[T](
     Sleeps ``warmup_seconds`` first, then runs discovery passes every
     ``poll_seconds`` until ``scan_seconds`` elapse. Each pass calls
     ``lookup`` (fast paths such as an address lookup) and then offers
-    every advertised ``(device, advertisement)`` pair to ``match``; the
+    every advertised ``(device, advertisement)`` pair to ``match``. The
     first non-None result from either hook is returned. Raises
     TimeoutError when the scan window closes without a match.
     """

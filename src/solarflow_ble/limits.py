@@ -10,7 +10,9 @@ guessed numbers. To add an entry:
 2. Add a lowercase key to ``MODEL_LIMITS``. Keys are matched
    case-insensitively against the ``model`` constructor argument and,
    when that is not given, against the ``productKey`` the device reports
-   in its messages.
+   in its messages. The 2400AC product key is registered next to its
+   model key because the verified hardware reports it, and ioBroker
+   maps it to the 2400 AC as well.
 """
 
 from collections.abc import Mapping
@@ -37,14 +39,11 @@ DEFAULT_LIMITS = SolarFlowLimits(
 
 MODEL_SOLARFLOW_2400AC = "solarflow-2400ac"
 
-# Product key the SolarFlow 2400 AC reports in its BLE messages.
 MODEL_SOLARFLOW_2400AC_PRODUCT_KEY = "bc8b7f"
 
 MODEL_LIMITS: Mapping[str, SolarFlowLimits] = MappingProxyType(
     {
-        # Verified against a real SolarFlow 2400AC by the library owner.
         MODEL_SOLARFLOW_2400AC: DEFAULT_LIMITS,
-        # Reported by the same verified hardware; ioBroker maps it to the 2400 AC too.
         MODEL_SOLARFLOW_2400AC_PRODUCT_KEY: DEFAULT_LIMITS,
     }
 )

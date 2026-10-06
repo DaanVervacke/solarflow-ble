@@ -91,7 +91,7 @@ class SolarFlowClient:
 
         Args:
             transport: BLE transport that owns the GATT connection.
-            device_id: Require this deviceId in the BLESPP handshake; the
+            device_id: Require this deviceId in the BLESPP handshake. The
                 reported identity is accepted when omitted.
             response_timeout: Seconds to wait for each device response.
             keepalive_seconds: Interval between keepalive read requests.
@@ -159,14 +159,14 @@ class SolarFlowClient:
         Connects the transport, subscribes to notifications, and drives the
         BLESPP handshake: BLESPP and BLESPP_OK, getInfo, then an initial
         getAll read. The session becomes ready once the first report
-        arrives. A no-op when already connected; reusable after
-        ``disconnect()``.
+        arrives. A no-op when already connected. The client is reusable
+        after ``disconnect()``.
 
         Raises:
             SolarFlowProtocolError: The handshake data is invalid or the
                 device identity does not match ``device_id``.
             SolarFlowTimeoutError: A handshake step exceeds
-                ``response_timeout``; the message quotes any device error
+                ``response_timeout``. The message quotes any device error
                 recorded while waiting. Device errors themselves do not
                 abort the handshake and remain available through
                 ``last_error``.
@@ -178,7 +178,6 @@ class SolarFlowClient:
             self._session_failure = None
             self.last_error = None
             self._cleanup_done = False
-            # Queue reports only while the handshake waits consume them.
             self._reports_wait_active = True
             try:
                 await self.transport.connect()
@@ -219,7 +218,6 @@ class SolarFlowClient:
         already disconnected.
         """
         async with self._lifecycle_lock:
-            # Mark the close as user-initiated so a racing session failure defers to it.
             self._closing = True
             try:
                 await self._disconnect_locked()
@@ -251,7 +249,7 @@ class SolarFlowClient:
     async def _cleanup_transport(self) -> None:
         """Stop notifications and disconnect at most once per session.
 
-        disconnect() and session-failure handling can race; the first
+        disconnect() and session-failure handling can race. The first
         path to reach the transport performs the teardown and the other
         becomes a no-op.
         """
@@ -271,21 +269,23 @@ class SolarFlowClient:
         self.device_id = self._target_device_id
 
     async def _handle_session_failure(self, error: Exception) -> None:
-        """Fail the session, clean it up, and wake every pending consumer."""
+        """Fail the session, clean it up, and wake every pending consumer.
+
+        Consumers blocked on the current queues are woken before cleanup
+        replaces them. Consumers that start waiting later fail fast through
+        the recorded session failure. A user-initiated disconnect owns
+        cleanup and the lost-connection notice, so it returns early. The
+        cleanup is best effort and skips cancelling the keepalive task when
+        it runs inside that task.
+        """
         if self._session_failure is not None or not self.connected:
             return
         self._session_failure = error
         self.status = ConnectionStatus.DISCONNECTED
-        # Wake consumers blocked on the current queues before cleanup
-        # replaces them; consumers that start waiting later fail fast
-        # through the recorded session failure instead.
         self._reports.put_nowait(_SessionClosed(error))
         self._write_results.put_nowait(_SessionClosed(error))
         if self._closing:
-            # A user-initiated disconnect owns cleanup and the lost-connection notice.
             return
-        # Best-effort cleanup, mirroring _disconnect_locked. The keepalive
-        # task cannot be cancelled and awaited when this runs inside it.
         current = asyncio.current_task()
         keepalive = self._keepalive_task
         if keepalive is not None and keepalive is not current:
@@ -320,9 +320,7 @@ class SolarFlowClient:
         ) from sentinel.error
 
     async def _notification(self, _characteristic: str, payload: bytes) -> None:
-        # One worker preserves arrival order; futures keep direct calls synchronous.
         if self._notification_worker is None:
-            # Outside a live session there is no worker to order against.
             await self._process_notification(payload)
             return
         done = asyncio.get_running_loop().create_future()
@@ -349,7 +347,6 @@ class SolarFlowClient:
                     )
                 raise
             except Exception as err:
-                # Surface the failure to the caller and keep delivering.
                 _LOGGER.exception("SolarFlow notification processing failed")
                 if not done.done():
                     done.set_exception(err)
@@ -383,8 +380,6 @@ class SolarFlowClient:
             if method != "BLESPP":
                 self._validate_message_identity(message)
         except SolarFlowProtocolError as err:
-            # Protocol errors in notifications are session failures, not
-            # swallowed background task exceptions.
             await self._handle_session_failure(err)
             return
         if method == "BLESPP":
@@ -503,7 +498,6 @@ class SolarFlowClient:
         return self.device_id
 
     def _next_message_id(self) -> int:
-        # 1009 is reserved for the BLESPP_OK handshake; never hand it out here.
         while self._message_id == BLESPP_OK_MESSAGE_ID:
             self._message_id += 1
         message_id = self._message_id
@@ -569,7 +563,6 @@ class SolarFlowClient:
                 properties = response.get("properties")
                 if not isinstance(properties, dict) or "writeRsp" not in properties:
                     return False
-                # Correlate the ack with this request; stale writeRsp must not match.
                 echoed_id = response.get("messageId")
                 correlated = property_name in properties or (
                     echoed_id is not None and str(echoed_id) == str(message_id)
@@ -638,8 +631,8 @@ class SolarFlowClient:
     async def set_min_soc(self, value: int) -> None:
         """Set the minimum state-of-charge reserve.
 
-        The device stores the value as per-mille; the percent value given
-        here is multiplied by 10 on the wire.
+        The device stores the value as per-mille, so the percent value
+        given here is multiplied by 10 on the wire.
 
         Args:
             value: Minimum SOC in percent, between 0 and the model's
@@ -666,8 +659,8 @@ class SolarFlowClient:
     async def set_soc(self, value: int) -> None:
         """Set the target state of charge.
 
-        The device stores the value as per-mille; the percent value given
-        here is multiplied by 10 on the wire.
+        The device stores the value as per-mille, so the percent value
+        given here is multiplied by 10 on the wire.
 
         Args:
             value: Target SOC in percent, between the model's
@@ -696,8 +689,8 @@ class SolarFlowClient:
         """Set the AC operating mode.
 
         Args:
-            value: ``AcMode.CHARGING`` (1) or ``AcMode.DISCHARGING`` (2);
-                plain ints are accepted.
+            value: ``AcMode.CHARGING`` (1) or ``AcMode.DISCHARGING`` (2).
+                Plain ints are accepted.
 
         Raises:
             SolarFlowValidationError: The value is not a known AC mode.
@@ -717,9 +710,12 @@ class SolarFlowClient:
         await self._request_write("acMode", int(mode))
 
     async def _keepalive(self) -> None:
-        # An abrupt BLE disconnect surfaces through the next failing write,
-        # at most one keepalive interval after the link drops (30 seconds
-        # by default); the transport offers no disconnect notification.
+        """Send periodic read requests so a dropped link surfaces as a failed write.
+
+        The transport offers no disconnect notification, so an abrupt BLE
+        disconnect shows up through the next failing write, at most one
+        keepalive interval after the link drops (30 seconds by default).
+        """
         try:
             while True:
                 await asyncio.sleep(self.keepalive_seconds)

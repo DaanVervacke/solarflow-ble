@@ -1,4 +1,3 @@
-# Python-generated files
 __pycache__/
 *.py[oc]
 build/
@@ -6,17 +5,13 @@ dist/
 wheels/
 *.egg-info
 
-# Virtual environments
 .venv
 .coverage
 htmlcov/
 coverage.xml
 
-# Sphinx build output
 docs/_build/
 
-# Local standalone client credentials and device settings
 scripts/test_solarflow_client.local.json
 
-# Local Android app captures
 *.xapk

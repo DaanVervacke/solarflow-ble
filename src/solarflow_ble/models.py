@@ -21,8 +21,6 @@ _REPORT_FIELDS = {
     "smartMode": "smart_mode",
     "chargeMaxLimit": "charge_max_limit",
     "socLimit": "soc_limit",
-    # minSoc/socSet are per-mille on the wire (percent x 10); the client
-    # multiplies by 10 when setting them, so keep raw wire values here.
     "minSoc": "min_soc",
     "socSet": "soc_set",
     "gridInputPower": "grid_input_power",
@@ -130,7 +128,7 @@ class SolarFlowState:
     ``min_soc`` and ``soc_set`` are per-mille on the wire (percent x 10):
     a reported 500 means 50%. The control methods take percents and do
     the conversion themselves. ``raw`` holds the known report keys of
-    every applied report, merged across the session; unknown properties
+    every applied report, merged across the session. Unknown properties
     are dropped, so it never grows through a hostile peripheral.
     """
 
@@ -148,7 +146,6 @@ class SolarFlowState:
     smart_mode: int | None = None
     charge_max_limit: int | None = None
     soc_limit: int | None = None
-    # Raw wire values: minSoc/socSet are reported as per-mille (percent x 10).
     min_soc: int | None = None
     soc_set: int | None = None
     output_home_power: int | None = None
@@ -215,7 +212,6 @@ class SolarFlowState:
             output_pack_power = changes.get("output_pack_power", self.output_pack_power)
             if pack_input_power is not None and output_pack_power is not None:
                 changes["battery_power"] = output_pack_power - pack_input_power
-            # Keep only known report keys so raw cannot grow without limit.
             changes["raw"] = {
                 **(self.raw or {}),
                 **{

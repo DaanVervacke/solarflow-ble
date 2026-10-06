@@ -1,4 +1,8 @@
-"""SolarFlow BLE constants."""
+"""SolarFlow BLE constants.
+
+ESPHome proxy frames can exceed the BLE MTU, so JSON payloads are
+bounded at 64 KiB.
+"""
 
 WRITE_CHARACTERISTIC_UUID = "0000c304-0000-1000-8000-00805f9b34fb"
 NOTIFY_CHARACTERISTIC_UUID = "0000c305-0000-1000-8000-00805f9b34fb"
@@ -7,5 +11,4 @@ DEFAULT_KEEPALIVE_SECONDS = 30.0
 DEFAULT_RESPONSE_TIMEOUT = 10.0
 DEFAULT_BLE_SPP_DELAY = 0.3
 BLESPP_OK_MESSAGE_ID = 1009
-# ESPHome proxy frames can exceed the BLE MTU; 64 KiB bounds hostile payloads.
 MAX_JSON_PAYLOAD_BYTES = 64 * 1024

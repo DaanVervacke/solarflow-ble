@@ -1,17 +1,13 @@
 version: 2
 updates:
-  # Python dependencies (pyproject.toml, uv.lock)
   - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
     labels:
       - dependencies
-    # 7-day cooldown: don't update packages published < 7 days ago
-    # Mitigates supply chain attacks via malicious updates
     cooldown:
       default-days: 7
-    # Group minor/patch updates to reduce PR noise
     groups:
       dev-dependencies:
         dependency-type: development
@@ -20,7 +16,6 @@ updates:
         dependency-type: production
         update-types: [patch]
 
-  # GitHub Actions
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -29,7 +24,6 @@ updates:
       - dependencies
     cooldown:
       default-days: 7
-    # One grouped PR for all action updates, majors included
     groups:
       actions:
         patterns: ["*"]
