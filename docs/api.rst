@@ -1,6 +1,8 @@
 API reference
 =============
 
+Import every name on this page from ``solarflow_ble``.
+
 Client
 ------
 
@@ -45,22 +47,22 @@ Control limits
 .. autoclass:: solarflow_ble.SolarFlowLimits
    :members:
 
-.. autodata:: solarflow_ble.DEFAULT_LIMITS
+.. autodata:: solarflow_ble.limits.DEFAULT_LIMITS
 
-.. autodata:: solarflow_ble.MODEL_LIMITS
+.. autodata:: solarflow_ble.limits.MODEL_LIMITS
 
-.. autodata:: solarflow_ble.MODEL_SOLARFLOW_2400AC
+.. autodata:: solarflow_ble.limits.MODEL_SOLARFLOW_2400AC
 
-.. autodata:: solarflow_ble.MODEL_SOLARFLOW_2400AC_PRODUCT_KEY
+.. autodata:: solarflow_ble.limits.MODEL_SOLARFLOW_2400AC_PRODUCT_KEY
 
 Callbacks
 ---------
 
-.. autodata:: solarflow_ble.NotificationCallback
+.. autodata:: solarflow_ble.client.NotificationCallback
 
-.. autodata:: solarflow_ble.UpdateCallback
+.. autodata:: solarflow_ble.client.UpdateCallback
 
-.. autodata:: solarflow_ble.ConnectionLostCallback
+.. autodata:: solarflow_ble.client.ConnectionLostCallback
 
 Protocol helpers
 ----------------

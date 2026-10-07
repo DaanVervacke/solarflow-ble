@@ -22,7 +22,14 @@ from types import MappingProxyType
 
 @dataclass(frozen=True, slots=True)
 class SolarFlowLimits:
-    """Inclusive validation bounds for SolarFlow control writes."""
+    """Inclusive validation bounds for SolarFlow control writes.
+
+    Attributes:
+        max_input_power_w: Highest accepted ``set_input_limit`` value.
+        max_output_power_w: Highest accepted ``set_output_limit`` value.
+        max_min_soc: Highest accepted ``set_min_soc`` percent.
+        min_target_soc: Lowest accepted ``set_soc`` percent.
+    """
 
     max_input_power_w: int
     max_output_power_w: int
@@ -36,10 +43,13 @@ DEFAULT_LIMITS = SolarFlowLimits(
     max_min_soc=50,
     min_target_soc=70,
 )
+"""Verified SolarFlow 2400AC bounds, used when no model matches."""
 
 MODEL_SOLARFLOW_2400AC = "solarflow-2400ac"
+"""Model key for the SolarFlow 2400AC."""
 
 MODEL_SOLARFLOW_2400AC_PRODUCT_KEY = "bc8b7f"
+"""Lowercase ``productKey`` the SolarFlow 2400AC reports."""
 
 MODEL_LIMITS: Mapping[str, SolarFlowLimits] = MappingProxyType(
     {
@@ -47,3 +57,4 @@ MODEL_LIMITS: Mapping[str, SolarFlowLimits] = MappingProxyType(
         MODEL_SOLARFLOW_2400AC_PRODUCT_KEY: DEFAULT_LIMITS,
     }
 )
+"""Read-only registry of verified bounds, keyed by lowercase model key."""

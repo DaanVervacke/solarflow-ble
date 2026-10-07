@@ -6,7 +6,7 @@ class SolarFlowError(Exception):
 
 
 class SolarFlowConnectionError(SolarFlowError):
-    """The BLE transport could not connect or disconnected."""
+    """The session failed, or a control write could not be sent."""
 
 
 class SolarFlowTimeoutError(SolarFlowError):
@@ -26,8 +26,11 @@ class SolarFlowValidationError(SolarFlowError, ValueError):
 
 
 class SolarFlowNotReadyError(SolarFlowError):
-    """The session is connected but controls are not currently ready."""
+    """Controls are disabled or the session is not ``READY``."""
 
 
 class SolarFlowDeviceError(SolarFlowError):
-    """The device reported a protocol error event."""
+    """The device sent an ``error`` message.
+
+    The client stores it in ``last_error`` instead of raising it.
+    """

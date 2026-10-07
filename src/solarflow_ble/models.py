@@ -64,7 +64,12 @@ class AcMode(IntEnum):
 
 
 class ConnectionStatus(StrEnum):
-    """Protocol session status."""
+    """Protocol session status.
+
+    A session moves from ``DISCONNECTED`` to ``CONNECTED`` when the
+    transport connects, to ``PROTOCOL_READY`` after ``getInfo-rsp``, and
+    to ``READY`` after the first report. Control writes need ``READY``.
+    """
 
     DISCONNECTED = "disconnected"
     CONNECTED = "connected"
@@ -92,7 +97,11 @@ class BatteryPack:
 
 @dataclass(frozen=True, slots=True)
 class Advertisement:
-    """A SolarFlow BLE advertisement."""
+    """A SolarFlow BLE advertisement.
+
+    ``identifier`` is the ASCII device identifier from the SolarFlow
+    manufacturer data. The other fields come from the scanner.
+    """
 
     address: str
     identifier: str
@@ -127,7 +136,9 @@ class SolarFlowState:
     Fields hold the raw wire values of the report properties they mirror.
     ``min_soc`` and ``soc_set`` are per-mille on the wire (percent x 10):
     a reported 500 means 50%. The control methods take percents and do
-    the conversion themselves. ``raw`` holds the known report keys of
+    the conversion themselves. ``battery_power`` is derived as
+    ``output_pack_power`` minus ``pack_input_power`` once both are
+    known. ``raw`` holds the known report keys of
     every applied report, merged across the session. Unknown properties
     are dropped, so it never grows through a hostile peripheral.
     """
@@ -181,10 +192,9 @@ class SolarFlowState:
     def with_report(self, message: dict[str, object]) -> SolarFlowState:
         """Apply one report message with a single reconstruction.
 
-        Combines update(), with_identity(), and with_packs() so the
-        per-report hot path rebuilds the state once instead of four
-        times. Identity is only applied when the report carries a
-        properties object, matching the historical composition.
+        Applies the properties, identity, and packData of the message in
+        one step. Identity is only applied when the message carries a
+        properties object.
 
         Args:
             message: One decoded report message.
@@ -263,7 +273,11 @@ class SolarFlowState:
 
 @dataclass(frozen=True, slots=True)
 class SolarFlowUpdate:
-    """Typed state update delivered to an optional callback."""
+    """State update passed to the client's ``update_callback``.
+
+    ``state`` and ``status`` are the client values after the message was
+    applied. ``raw_message`` is the decoded JSON message.
+    """
 
     state: SolarFlowState
     status: ConnectionStatus

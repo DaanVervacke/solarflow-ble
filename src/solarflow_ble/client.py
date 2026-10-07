@@ -32,8 +32,11 @@ from .models import AcMode, ConnectionStatus, SolarFlowState, SolarFlowUpdate
 from .protocol import decode_json, encode_json
 
 NotificationCallback = Callable[[str, bytes], Awaitable[None] | None]
+"""Transport callback taking the characteristic UUID and the raw payload."""
 UpdateCallback = Callable[[SolarFlowUpdate], Awaitable[None]]
+"""Coroutine function awaited with each ``SolarFlowUpdate``."""
 ConnectionLostCallback = Callable[[Exception], Awaitable[None] | None]
+"""Sync or async function called with the exception that ended a session."""
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -97,12 +100,16 @@ class SolarFlowClient:
             keepalive_seconds: Interval between keepalive read requests.
             ble_spp_delay: Pause after BLESPP_OK before the getInfo request.
             initial_read_delay: Pause between getInfo and the initial read.
-            update_callback: Called with every decoded update after the
+            update_callback: Coroutine function awaited with a
+                ``SolarFlowUpdate`` for every decoded message except
+                ``BLESPP``, including messages received during the
                 handshake.
-            connection_lost_callback: Called with the exception that ended
-                a session.
+            connection_lost_callback: Called, sync or async, with the
+                exception that ended a session. Not called for
+                ``disconnect()``.
             allow_control: Enable the control methods.
-            model: Model key used to resolve validation limits.
+            model: Model key looked up case-insensitively in
+                ``MODEL_LIMITS`` to resolve validation limits.
             limits: Explicit validation bounds, overriding model resolution.
         """
         self.transport = transport
@@ -162,9 +169,14 @@ class SolarFlowClient:
         arrives. A no-op when already connected. The client is reusable
         after ``disconnect()``.
 
+        Errors raised by the transport while connecting propagate
+        unchanged.
+
         Raises:
             SolarFlowProtocolError: The handshake data is invalid or the
                 device identity does not match ``device_id``.
+            SolarFlowConnectionError: The session failed during the
+                handshake.
             SolarFlowTimeoutError: A handshake step exceeds
                 ``response_timeout``. The message quotes any device error
                 recorded while waiting. Device errors themselves do not

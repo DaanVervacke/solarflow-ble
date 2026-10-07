@@ -46,7 +46,11 @@ class BleakTransport(BleTransport):
 
     @property
     def client(self) -> bleak.BleakClient:
-        """The connected Bleak client, or a RuntimeError when not connected."""
+        """The connected Bleak client.
+
+        Raises:
+            RuntimeError: The transport is not connected.
+        """
         if self._client is None:
             raise RuntimeError("SolarFlow BLE transport is not connected")
         return self._client
