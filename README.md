@@ -36,13 +36,15 @@ transport without Bluetooth hardware.
 ```python
 import asyncio
 
-from bleak.backends.device import BLEDevice
+from bleak import BleakScanner
 
 from solarflow_ble import BleakTransport, SolarFlowClient
 
 
 async def main() -> None:
-    device = BLEDevice("AA:BB:CC:DD:EE:FF", "SolarFlow", {})
+    device = await BleakScanner.find_device_by_address("AA:BB:CC:DD:EE:FF")
+    if device is None:
+        raise SystemExit("SolarFlow not found")
     async with SolarFlowClient(BleakTransport(device)) as client:
         print(client.device_id)
         print(client.state)
@@ -51,29 +53,59 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+Inside Home Assistant, pass the `BLEDevice` from
+`bluetooth.async_ble_device_from_address` instead of scanning.
+`parse_advertisement` turns SolarFlow manufacturer data into an
+`Advertisement` with the device identifier.
+
 The `async with` block connects on entry and always disconnects on exit,
 including when the body raises. For reconnect use cases, call `connect()`
 and `disconnect()` yourself instead; `connect()` is reusable after
 `disconnect()` on the same client instance.
 
 The client waits for `BLESPP`, sends `BLESPP_OK`, requests `getInfo`, then
-sends a `read` request for `getAll`. It keeps the session updated with report
-messages.
+sends a `read` request for `getAll`. `client.status` moves from
+`DISCONNECTED` to `CONNECTED`, `PROTOCOL_READY` after `getInfo-rsp`, and
+`READY` after the first report. `connect()` returns once the session is
+`READY`. Every later report updates `client.state` and is passed to the
+optional `update_callback` as a `SolarFlowUpdate`.
 
-Control methods are disabled unless `allow_control=True`. Validated ranges are:
+### Controls
 
-- input and output limits: `0..2400 W`
-- minimum SOC: `0..50%`
-- target SOC: `70..100%`
-- AC mode: `1` or `2`
+Control methods raise `SolarFlowNotReadyError` unless the client was built
+with `allow_control=True` and the session is `READY`.
+
+```python
+from solarflow_ble import MODEL_SOLARFLOW_2400AC, AcMode
+
+async with SolarFlowClient(
+    BleakTransport(device), allow_control=True, model=MODEL_SOLARFLOW_2400AC
+) as client:
+    await client.set_output_limit(800)
+    await client.set_ac_mode(AcMode.DISCHARGING)
+```
+
+| Method | Value | Default range |
+| --- | --- | --- |
+| `set_input_limit` | watts | `0..2400` |
+| `set_output_limit` | watts | `0..2400` |
+| `set_min_soc` | percent | `0..50` |
+| `set_soc` | target percent | `70..100` |
+| `set_ac_mode` | `AcMode.CHARGING` (1) or `AcMode.DISCHARGING` (2) | |
+
+Out-of-range values raise `SolarFlowValidationError` before anything is
+sent. A rejected write raises `SolarFlowCommandError`. The SOC setters take
+percent, but `state.min_soc` and `state.soc_set` hold the raw per-mille wire
+value, so a reported `500` means 50%. All exceptions derive from
+`SolarFlowError`.
 
 ### Model limits
 
-Those ranges are the values verified for the SolarFlow 2400AC and are the
+The default ranges are the values verified for the SolarFlow 2400AC and are the
 default for every model. Validation bounds are model-specific: applying
 2400AC bounds to a smaller unit could forward out-of-spec values to the
 hardware, while larger models would have valid values rejected. Pass
-`model="solarflow-2400ac"` (matched case-insensitively against the registry
+`model=MODEL_SOLARFLOW_2400AC` (`"solarflow-2400ac"`, matched case-insensitively against the registry
 of verified entries; the `productKey` the device reports is used when
 `model` is not given) or explicit `limits=SolarFlowLimits(...)` to the
 constructor. At validation time the client resolves bounds in this order:
@@ -94,8 +126,8 @@ session fails:
   waiting for the response timeout
 - `client.status` flips to `ConnectionStatus.DISCONNECTED`
 - an optional `connection_lost_callback` receives the underlying exception
-- `client.last_error` holds the most recent device-reported error message,
-  if the device sent one (`method == "error"`)
+- `client.last_error` holds a `SolarFlowDeviceError` for the most recent
+  device-reported error (`method == "error"`), if any. `connect()` clears it
 
 Messages that are still being processed when the session fails keep flowing
 to `update_callback`, with `update.status` reflecting `DISCONNECTED`. Call
@@ -129,7 +161,10 @@ uv run scripts/probe_solarflow.py \
 
 Use `--no-handshake` for passive notification capture. Addresses, identifiers,
 device IDs, product keys, pack serials, and credentials are redacted from
-capture files. `--show-identities` affects logs only.
+capture files. `--show-identities` affects logs only. `--proxy`,
+`--noise-psk`, `--address`, and `--identifier` fall back to the
+`SOLARFLOW_PROXY`, `SOLARFLOW_NOISE_PSK`, `SOLARFLOW_DEVICE_ADDRESS`, and
+`SOLARFLOW_DEVICE_IDENTIFIER` environment variables.
 
 The probe uses the same `SolarFlowClient` protocol flow as the library in
 normal mode. Passive mode connects directly to the notification characteristic
@@ -168,8 +203,10 @@ uv run scripts/test_solarflow_client.py --duration 30
 ```
 
 The script prints decoded updates to stdout and always redacts optional JSONL
-output. Controls require both `--controls` and `--confirm-controls`. Never
-commit the local config or a real PSK.
+output. Controls require `--controls`, `--confirm-controls`, and explicit
+`--min-soc` and `--soc` values. `--input-limit`, `--output-limit`, and
+`--ac-mode` are optional. Use `--config` to read a different JSON file.
+Never commit the local config or a real PSK.
 
 ## Development
 
