@@ -1,7 +1,9 @@
 """Typed SolarFlow models."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import IntEnum, StrEnum
+from types import MappingProxyType
 from typing import Any, cast
 
 _REPORT_FIELDS = {
@@ -138,7 +140,7 @@ class SolarFlowState:
     a reported 500 means 50%. The control methods take percents and do
     the conversion themselves. ``battery_power`` is derived as
     ``output_pack_power`` minus ``pack_input_power`` once both are
-    known. ``raw`` holds the known report keys of
+    known. ``raw`` is a read-only mapping of the known report keys of
     every applied report, merged across the session. Unknown properties
     are dropped, so it never grows through a hostile peripheral.
     """
@@ -176,18 +178,7 @@ class SolarFlowState:
     device_id: str | None = None
     product_key: str | None = None
     packs: tuple[BatteryPack, ...] = ()
-    raw: dict[str, object] | None = None
-
-    def update(self, values: dict[str, object]) -> SolarFlowState:
-        """Apply a plain properties mapping as one report.
-
-        Args:
-            values: Raw ``properties`` mapping from one report message.
-
-        Returns:
-            The reconstructed state with the report applied.
-        """
-        return self.with_report({"properties": values})
+    raw: Mapping[str, object] | None = None
 
     def with_report(self, message: dict[str, object]) -> SolarFlowState:
         """Apply one report message with a single reconstruction.
@@ -222,53 +213,20 @@ class SolarFlowState:
             output_pack_power = changes.get("output_pack_power", self.output_pack_power)
             if pack_input_power is not None and output_pack_power is not None:
                 changes["battery_power"] = output_pack_power - pack_input_power
-            changes["raw"] = {
-                **(self.raw or {}),
-                **{
-                    key: value
-                    for key, value in properties.items()
-                    if key in _REPORT_FIELDS
-                },
-            }
+            changes["raw"] = MappingProxyType(
+                {
+                    **(self.raw or {}),
+                    **{
+                        key: value
+                        for key, value in properties.items()
+                        if key in _REPORT_FIELDS
+                    },
+                }
+            )
         raw_packs = message.get("packData")
         if isinstance(raw_packs, list):
             changes["packs"] = _merged_packs(self.packs, raw_packs)
         return replace(self, **changes)
-
-    def with_identity(self, message: dict[str, object]) -> SolarFlowState:
-        """Apply the deviceId and productKey a message carries, if any.
-
-        Args:
-            message: One decoded report message.
-
-        Returns:
-            The reconstructed state, unchanged when the message
-            carries neither identity field.
-        """
-        device_id = message.get("deviceId")
-        product_key = message.get("productKey")
-        return replace(
-            self,
-            device_id=device_id if isinstance(device_id, str) else self.device_id,
-            product_key=product_key
-            if isinstance(product_key, str)
-            else self.product_key,
-        )
-
-    def with_packs(self, message: dict[str, object]) -> SolarFlowState:
-        """Merge the packData entries a message carries, if any.
-
-        Args:
-            message: One decoded report message.
-
-        Returns:
-            The reconstructed state, unchanged when the message
-            carries no packData list.
-        """
-        raw_packs = message.get("packData")
-        if not isinstance(raw_packs, list):
-            return self
-        return replace(self, packs=_merged_packs(self.packs, raw_packs))
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,7 +13,7 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 
-from .client import BleTransport, NotificationCallback
+from .interfaces import BleTransport, NotificationCallback
 
 _LOGGER = logging.getLogger(__name__)
 

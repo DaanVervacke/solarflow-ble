@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from solarflow_ble import SolarFlowClient
 
-from test_solarflow import FakeTransport
+from conftest import FakeTransport
 
 FIXTURE = Path(__file__).parent / "fixtures" / "zendure_app_7_0_0_contract.jsonl"
 METADATA = Path(__file__).parent / "fixtures" / "zendure_app_7_0_0_contract.meta.json"

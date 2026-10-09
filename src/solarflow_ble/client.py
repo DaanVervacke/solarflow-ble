@@ -7,8 +7,9 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
+from dataclasses import replace
 from types import TracebackType
-from typing import Any, NoReturn, Protocol, Self
+from typing import Any, NoReturn, Self
 
 from .const import (
     BLESPP_OK_MESSAGE_ID,
@@ -27,12 +28,19 @@ from .exceptions import (
     SolarFlowTimeoutError,
     SolarFlowValidationError,
 )
+from .interfaces import BleTransport, NotificationCallback
 from .limits import DEFAULT_LIMITS, MODEL_LIMITS, SolarFlowLimits
 from .models import AcMode, ConnectionStatus, SolarFlowState, SolarFlowUpdate
 from .protocol import decode_json, encode_json
 
-NotificationCallback = Callable[[str, bytes], Awaitable[None] | None]
-"""Transport callback taking the characteristic UUID and the raw payload."""
+__all__ = [
+    "BleTransport",
+    "ConnectionLostCallback",
+    "NotificationCallback",
+    "SolarFlowClient",
+    "UpdateCallback",
+]
+
 UpdateCallback = Callable[[SolarFlowUpdate], Awaitable[None]]
 """Coroutine function awaited with each ``SolarFlowUpdate``."""
 ConnectionLostCallback = Callable[[Exception], Awaitable[None] | None]
@@ -47,29 +55,6 @@ class _SessionClosed:
 
     def __init__(self, error: Exception) -> None:
         self.error = error
-
-
-class BleTransport(Protocol):
-    """Minimal BLE transport supplied by the caller."""
-
-    async def connect(self) -> None:
-        """Establish the GATT connection."""
-
-    async def disconnect(self) -> None:
-        """Tear down the GATT connection."""
-
-    async def start_notify(
-        self, characteristic: str, callback: NotificationCallback
-    ) -> None:
-        """Subscribe to notifications on ``characteristic``."""
-
-    async def stop_notify(self, characteristic: str) -> None:
-        """Unsubscribe from notifications on ``characteristic``."""
-
-    async def write_gatt_char(
-        self, characteristic: str, data: bytes, response: bool = False
-    ) -> None:
-        """Write ``data`` to ``characteristic``."""
 
 
 class SolarFlowClient:
@@ -208,18 +193,22 @@ class SolarFlowClient:
                 )
                 await asyncio.sleep(self.ble_spp_delay)
                 await self._write(self._build_request("getInfo"))
-                await self._wait_for_get_info()
+                await self._wait_for_method("getInfo-rsp")
                 self.status = ConnectionStatus.PROTOCOL_READY
                 await asyncio.sleep(self.initial_read_delay)
                 await self._write(
                     self._build_request("read", {"properties": ["getAll"]})
                 )
-                await self._wait_for_initial_reports()
+                await self._wait_for_method(
+                    "report",
+                    context="initial report state",
+                    sentinel_context="initial reports",
+                )
                 self._reports_wait_active = False
                 self._refresh_status()
                 self._keepalive_task = asyncio.create_task(self._keepalive())
             except BaseException:
-                await self._disconnect_locked()
+                await self._teardown()
                 raise
 
     async def disconnect(self) -> None:
@@ -232,7 +221,7 @@ class SolarFlowClient:
         async with self._lifecycle_lock:
             self._closing = True
             try:
-                await self._disconnect_locked()
+                await self._teardown()
             finally:
                 self._closing = False
 
@@ -248,11 +237,13 @@ class SolarFlowClient:
     ) -> None:
         await self.disconnect()
 
-    async def _disconnect_locked(self) -> None:
-        if self._keepalive_task:
-            self._keepalive_task.cancel()
-            await asyncio.gather(self._keepalive_task, return_exceptions=True)
-            self._keepalive_task = None
+    async def _teardown(self) -> None:
+        """Tear down the session without cancelling a calling keepalive task."""
+        keepalive = self._keepalive_task
+        self._keepalive_task = None
+        if keepalive is not None and keepalive is not asyncio.current_task():
+            keepalive.cancel()
+            await asyncio.gather(keepalive, return_exceptions=True)
         await self._cleanup_transport()
         await self._stop_notification_worker()
         self.status = ConnectionStatus.DISCONNECTED
@@ -286,9 +277,7 @@ class SolarFlowClient:
         Consumers blocked on the current queues are woken before cleanup
         replaces them. Consumers that start waiting later fail fast through
         the recorded session failure. A user-initiated disconnect owns
-        cleanup and the lost-connection notice, so it returns early. The
-        cleanup is best effort and skips cancelling the keepalive task when
-        it runs inside that task.
+        cleanup and the lost-connection notice, so it returns early.
         """
         if self._session_failure is not None or not self.connected:
             return
@@ -298,15 +287,7 @@ class SolarFlowClient:
         self._write_results.put_nowait(_SessionClosed(error))
         if self._closing:
             return
-        current = asyncio.current_task()
-        keepalive = self._keepalive_task
-        if keepalive is not None and keepalive is not current:
-            keepalive.cancel()
-            await asyncio.gather(keepalive, return_exceptions=True)
-        self._keepalive_task = None
-        await self._cleanup_transport()
-        await self._stop_notification_worker()
-        self._reset_session()
+        await self._teardown()
         _LOGGER.warning("SolarFlow session failed: %s", error)
         callback = self.connection_lost_callback
         if callback is None:
@@ -370,8 +351,7 @@ class SolarFlowClient:
         """Stop the notification worker after draining queued payloads.
 
         The sentinel wakes the worker, which applies everything already
-        queued (matching the previous per-message tasks, which always ran
-        to completion) and then exits. The reference is cleared first so
+        queued and then exits. The reference is cleared first so
         notifications arriving after this point apply inline instead of
         queueing behind the sentinel. When the session failure itself is
         being handled inside the worker, the worker drains the queue and
@@ -477,10 +457,17 @@ class SolarFlowClient:
             message = f"{message} (last device error: {self.last_error})"
         return message
 
-    async def _wait_for_method(self, method: str) -> dict[str, Any]:
+    async def _wait_for_method(
+        self,
+        method: str,
+        *,
+        context: str | None = None,
+        sentinel_context: str | None = None,
+    ) -> dict[str, Any]:
         return await self._wait_for_response(
             self._reports,
-            context=method,
+            context=context or method,
+            sentinel_context=sentinel_context,
             accept=lambda message: message.get("method") == method,
         )
 
@@ -493,7 +480,7 @@ class SolarFlowClient:
                 "BLESPP deviceId does not match the requested device"
             )
         self.device_id = device_id
-        self.state = self.state.with_identity({"deviceId": device_id})
+        self.state = replace(self.state, device_id=device_id)
 
     def _validate_message_identity(self, message: dict[str, Any]) -> None:
         message_device_id = message.get("deviceId")
@@ -529,21 +516,6 @@ class SolarFlowClient:
         if extra is not None:
             message.update(extra)
         return message
-
-    async def _wait_for_get_info(self) -> None:
-        await self._wait_for_response(
-            self._reports,
-            context="getInfo-rsp",
-            accept=lambda message: message.get("method") == "getInfo-rsp",
-        )
-
-    async def _wait_for_initial_reports(self) -> None:
-        await self._wait_for_response(
-            self._reports,
-            context="initial report state",
-            sentinel_context="initial reports",
-            accept=lambda message: message.get("method") == "report",
-        )
 
     def _refresh_status(self) -> None:
         if self.status is ConnectionStatus.DISCONNECTED or not self.protocol_ready:
@@ -599,8 +571,7 @@ class SolarFlowClient:
 
         Args:
             value: Limit in watts, between 0 and the model's
-                ``max_input_power_w`` (2400 for the SolarFlow 2400AC
-                default).
+                ``max_input_power_w``.
 
         Raises:
             SolarFlowValidationError: The value is outside the model
@@ -614,7 +585,9 @@ class SolarFlowClient:
             SolarFlowCommandError: The device rejected the write.
         """
         limits = self._resolve_limits()
-        self._validate_limit(value, limits.max_input_power_w, "Input power limit")
+        self._validate_range(
+            value, 0, limits.max_input_power_w, "Input power limit", "W"
+        )
         await self._request_write("inputLimit", value)
 
     async def set_output_limit(self, value: int) -> None:
@@ -622,8 +595,7 @@ class SolarFlowClient:
 
         Args:
             value: Limit in watts, between 0 and the model's
-                ``max_output_power_w`` (2400 for the SolarFlow 2400AC
-                default).
+                ``max_output_power_w``.
 
         Raises:
             SolarFlowValidationError: The value is outside the model
@@ -637,7 +609,9 @@ class SolarFlowClient:
             SolarFlowCommandError: The device rejected the write.
         """
         limits = self._resolve_limits()
-        self._validate_limit(value, limits.max_output_power_w, "Output power limit")
+        self._validate_range(
+            value, 0, limits.max_output_power_w, "Output power limit", "W"
+        )
         await self._request_write("outputLimit", value)
 
     async def set_min_soc(self, value: int) -> None:
@@ -648,7 +622,7 @@ class SolarFlowClient:
 
         Args:
             value: Minimum SOC in percent, between 0 and the model's
-                ``max_min_soc`` (50 for the SolarFlow 2400AC default).
+                ``max_min_soc``.
 
         Raises:
             SolarFlowValidationError: The value is outside the model
@@ -662,10 +636,7 @@ class SolarFlowClient:
             SolarFlowCommandError: The device rejected the write.
         """
         limits = self._resolve_limits()
-        if not 0 <= value <= limits.max_min_soc:
-            raise SolarFlowValidationError(
-                f"Minimum SOC must be between 0 and {limits.max_min_soc} percent"
-            )
+        self._validate_range(value, 0, limits.max_min_soc, "Minimum SOC", "percent")
         await self._request_write("minSoc", value * 10)
 
     async def set_soc(self, value: int) -> None:
@@ -676,8 +647,7 @@ class SolarFlowClient:
 
         Args:
             value: Target SOC in percent, between the model's
-                ``min_target_soc`` (70 for the SolarFlow 2400AC default)
-                and 100.
+                ``min_target_soc`` and 100.
 
         Raises:
             SolarFlowValidationError: The value is outside the model
@@ -691,10 +661,9 @@ class SolarFlowClient:
             SolarFlowCommandError: The device rejected the write.
         """
         limits = self._resolve_limits()
-        if not limits.min_target_soc <= value <= 100:
-            raise SolarFlowValidationError(
-                f"Maximum SOC must be between {limits.min_target_soc} and 100 percent"
-            )
+        self._validate_range(
+            value, limits.min_target_soc, 100, "Maximum SOC", "percent"
+        )
         await self._request_write("socSet", value * 10)
 
     async def set_ac_mode(self, value: AcMode | int) -> None:
@@ -725,8 +694,8 @@ class SolarFlowClient:
         """Send periodic read requests so a dropped link surfaces as a failed write.
 
         The transport offers no disconnect notification, so an abrupt BLE
-        disconnect shows up through the next failing write, at most one
-        keepalive interval after the link drops (30 seconds by default).
+        disconnect shows up through the next failing write, at most
+        ``keepalive_seconds`` after the link drops.
         """
         try:
             while True:
@@ -735,13 +704,17 @@ class SolarFlowClient:
                     await self._write(
                         self._build_request("read", {"properties": ["getAll"]})
                     )
-        except Exception as err:  # noqa: BLE001 - any transport error ends the session
+        except Exception as err:  # noqa: BLE001
             await self._handle_session_failure(err)
 
     @staticmethod
-    def _validate_limit(value: int, maximum: int, label: str) -> None:
-        if not 0 <= value <= maximum:
-            raise SolarFlowValidationError(f"{label} must be between 0 and {maximum} W")
+    def _validate_range(
+        value: int, minimum: int, maximum: int, label: str, unit: str
+    ) -> None:
+        if not minimum <= value <= maximum:
+            raise SolarFlowValidationError(
+                f"{label} must be between {minimum} and {maximum} {unit}"
+            )
 
     def _resolve_limits(self) -> SolarFlowLimits:
         """Resolve validation bounds for the current device.

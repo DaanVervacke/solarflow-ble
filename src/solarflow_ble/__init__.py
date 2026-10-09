@@ -3,13 +3,7 @@
 from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
 from importlib.metadata import version as _version
 
-from .client import (
-    BleTransport,
-    ConnectionLostCallback,
-    NotificationCallback,
-    SolarFlowClient,
-    UpdateCallback,
-)
+from .client import ConnectionLostCallback, SolarFlowClient, UpdateCallback
 from .exceptions import (
     SolarFlowCommandError,
     SolarFlowConnectionError,
@@ -20,6 +14,7 @@ from .exceptions import (
     SolarFlowTimeoutError,
     SolarFlowValidationError,
 )
+from .interfaces import BleTransport, NotificationCallback
 from .limits import (
     DEFAULT_LIMITS,
     MODEL_LIMITS,

@@ -58,7 +58,7 @@ Control limits
 Callbacks
 ---------
 
-.. autodata:: solarflow_ble.client.NotificationCallback
+.. autodata:: solarflow_ble.interfaces.NotificationCallback
 
 .. autodata:: solarflow_ble.client.UpdateCallback
 
