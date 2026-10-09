@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib.util
 import json
 import sys
 import time
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from types import ModuleType
 from typing import Any, cast
 
 import habluetooth
@@ -21,9 +19,15 @@ from solarflow_ble import BleakTransport, SolarFlowClient, __version__
 from solarflow_ble.models import BatteryPack, SolarFlowState, SolarFlowUpdate
 from solarflow_ble.protocol import parse_advertisement
 
+from scripts._proxy_common import (
+    DiscoveryBluetoothManager as DiagnosticBluetoothManager,
+)
+from scripts._proxy_common import proxy_host, scan_for_target, set_active_scanning
+from scripts._redact import redact_value
+
 DEFAULT_DURATION = 15.0
 DEFAULT_SCAN_SECONDS = 30.0
-DEFAULT_CONFIG = Path("scripts/test_solarflow_client.local.json")
+DEFAULT_CONFIG = Path("scripts/client_diagnostic.local.json")
 _CONFIG_KEYS = frozenset({"proxy", "noise_psk", "address", "identifier"})
 _STATE_FIELDS = (
     "input_limit",
@@ -79,44 +83,6 @@ class JsonlWriter:
         if self._file is not None:
             self._file.close()
             self._file = None
-
-
-def _load_redaction_module() -> ModuleType:
-    """Load the shared redaction helpers that ship next to this script."""
-    path = Path(__file__).resolve().with_name("_redact.py")
-    spec = importlib.util.spec_from_file_location("_redact", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load redaction helpers from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-redact_value: Callable[[Any], Any] = _load_redaction_module().redact_value
-
-
-def _load_proxy_common_module() -> ModuleType:
-    """Load the shared proxy helpers that ship next to this script."""
-    path = Path(__file__).resolve().with_name("_proxy_common.py")
-    spec = importlib.util.spec_from_file_location("_proxy_common", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load proxy helpers from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_proxy_common = _load_proxy_common_module()
-DiagnosticBluetoothManager: type[habluetooth.BluetoothManager] = (
-    _proxy_common.DiscoveryBluetoothManager
-)
-proxy_host: Callable[[str], str] = _proxy_common.proxy_host
-scan_for_target: Callable[..., Coroutine[Any, Any, tuple[BLEDevice, str | None]]] = (
-    _proxy_common.scan_for_target
-)
-set_active_scanning: Callable[[habluetooth.BluetoothManager], None] = (
-    _proxy_common.set_active_scanning
-)
 
 
 def serialize_pack(pack: BatteryPack) -> dict[str, Any]:

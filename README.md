@@ -141,7 +141,7 @@ Bluetooth proxy. It never sends device-setting writes.
 List advertisements:
 
 ```bash
-uv run scripts/probe_solarflow.py \
+uv run python -m scripts.probe_solarflow \
   --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
   --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --list-advertisements \
@@ -151,7 +151,7 @@ uv run scripts/probe_solarflow.py \
 Capture a target by address or SolarFlow advertisement identifier:
 
 ```bash
-uv run scripts/probe_solarflow.py \
+uv run python -m scripts.probe_solarflow \
   --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
   --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --identifier "DEVICE_IDENTIFIER" \
@@ -172,12 +172,12 @@ without sending protocol writes.
 
 ## Standalone library test
 
-`scripts/test_solarflow_client.py` exercises the library directly. It does not
+`scripts/client_diagnostic.py` exercises the library directly. It does not
 use the probe script. The default run is read-only and requires exactly one of
 `--address` or `--identifier`.
 
 ```bash
-uv run scripts/test_solarflow_client.py \
+uv run python -m scripts.client_diagnostic \
   --proxy "the-ip-of-your-esphome-bluetooth-proxy" \
   --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --identifier "DEVICE_IDENTIFIER" \
@@ -186,7 +186,7 @@ uv run scripts/test_solarflow_client.py \
 ```
 
 You can put the connection settings in the ignored file
-`scripts/test_solarflow_client.local.json`:
+`scripts/client_diagnostic.local.json`:
 
 ```json
 {
@@ -199,7 +199,7 @@ You can put the connection settings in the ignored file
 Then run:
 
 ```bash
-uv run scripts/test_solarflow_client.py --duration 30
+uv run python -m scripts.client_diagnostic --duration 30
 ```
 
 The script prints decoded updates to stdout and always redacts optional JSONL
@@ -222,7 +222,7 @@ Run focused tests:
 
 ```bash
 uv run pytest tests/test_solarflow.py
-uv run pytest tests/test_solarflow_client_script.py
+uv run pytest tests/test_client_diagnostic.py
 ```
 
 The full gate runs a version drift check, format, Ruff, mypy, branch-covered

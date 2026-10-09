@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib.util
 import json
 import logging
 import os
 import sys
 import time
-from collections.abc import Awaitable, Callable, Coroutine, Sequence
+from collections.abc import Awaitable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
 from typing import Any, cast
 
 import bleak
@@ -23,10 +21,19 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
 from bleak_retry_connector import establish_connection
-from solarflow_ble import BleakTransport, SolarFlowClient, __version__
-from solarflow_ble.client import BleTransport, NotificationCallback
+from solarflow_ble import (
+    BleakTransport,
+    BleTransport,
+    NotificationCallback,
+    SolarFlowClient,
+    __version__,
+)
 from solarflow_ble.const import NOTIFY_CHARACTERISTIC_UUID
 from solarflow_ble.protocol import parse_advertisement
+
+from scripts._proxy_common import DiscoveryBluetoothManager as ProbeBluetoothManager
+from scripts._proxy_common import proxy_host, scan_for_target, set_active_scanning
+from scripts._redact import redact_value
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -134,44 +141,6 @@ def _find_characteristic(
     if characteristic is None:
         raise RuntimeError(f"Missing GATT characteristic {uuid}")
     return characteristic
-
-
-def _load_redaction_module() -> ModuleType:
-    """Load the shared redaction helpers that ship next to this script."""
-    path = Path(__file__).resolve().with_name("_redact.py")
-    spec = importlib.util.spec_from_file_location("_redact", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load redaction helpers from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-redact_value: Callable[[Any], Any] = _load_redaction_module().redact_value
-
-
-def _load_proxy_common_module() -> ModuleType:
-    """Load the shared proxy helpers that ship next to this script."""
-    path = Path(__file__).resolve().with_name("_proxy_common.py")
-    spec = importlib.util.spec_from_file_location("_proxy_common", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load proxy helpers from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_proxy_common = _load_proxy_common_module()
-ProbeBluetoothManager: type[habluetooth.BluetoothManager] = (
-    _proxy_common.DiscoveryBluetoothManager
-)
-proxy_host: Callable[[str], str] = _proxy_common.proxy_host
-scan_for_target: Callable[..., Coroutine[Any, Any, BLEDevice]] = (
-    _proxy_common.scan_for_target
-)
-set_active_scanning: Callable[
-    [habluetooth.BluetoothManager, Callable[[Any], None] | None], None
-] = _proxy_common.set_active_scanning
 
 
 def _log_active_scan_request(scanner: Any) -> None:

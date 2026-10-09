@@ -1,19 +1,7 @@
-import sys
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
-
 import pytest
+from scripts import check
 
-_SPEC = spec_from_file_location(
-    "check", Path(__file__).parent.parent / "scripts" / "check.py"
-)
-assert _SPEC is not None
-assert _SPEC.loader is not None
-_MODULE = module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = _MODULE
-_SPEC.loader.exec_module(_MODULE)
-
-main = _MODULE.main
+main = check.main
 
 
 def test_check_help_exits_cleanly(capsys: pytest.CaptureFixture[str]) -> None:

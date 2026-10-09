@@ -1,37 +1,25 @@
 import asyncio
 import json
-import sys
 from dataclasses import replace
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+from scripts import client_diagnostic
+from scripts._redact import redact_value
 from solarflow_ble import SolarFlowState
 from solarflow_ble.models import BatteryPack, ConnectionStatus, SolarFlowUpdate
 
-from conftest import FakeBluetoothManager, FakeManager
+from conftest import FakeBluetoothManager, FakeManager, stub
 
-_SPEC = spec_from_file_location(
-    "solarflow_client_script",
-    Path(__file__).parent.parent / "scripts" / "test_solarflow_client.py",
-)
-assert _SPEC is not None
-assert _SPEC.loader is not None
-_MODULE = module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = _MODULE
-_SPEC.loader.exec_module(_MODULE)
-
-format_update = _MODULE.format_update
-find_device = _MODULE.find_device
-load_config = _MODULE.load_config
-main = _MODULE.main
-parse_arguments = _MODULE.parse_arguments
-plan_controls = _MODULE.plan_controls
-redact_value = _MODULE.redact_value
-serialize_pack = _MODULE.serialize_pack
-serialize_state = _MODULE.serialize_state
-JsonlWriter = _MODULE.JsonlWriter
+format_update = client_diagnostic.format_update
+find_device = client_diagnostic.find_device
+load_config = client_diagnostic.load_config
+main = client_diagnostic.main
+parse_arguments = client_diagnostic.parse_arguments
+plan_controls = client_diagnostic.plan_controls
+serialize_pack = client_diagnostic.serialize_pack
+serialize_state = client_diagnostic.serialize_state
+JsonlWriter = client_diagnostic.JsonlWriter
 
 
 def test_parser_requires_exactly_one_target(
@@ -332,7 +320,7 @@ def test_jsonl_writer_redacts_serialized_update(tmp_path: Path) -> None:
     )
     path = tmp_path / "updates.jsonl"
     writer = JsonlWriter(path)
-    writer.write(_MODULE.serialize_update(update))
+    writer.write(client_diagnostic.serialize_update(update))
     writer.close()
 
     content = path.read_text()
@@ -392,20 +380,24 @@ async def test_run_redacts_summary_state_updates_and_jsonl(
         async def disconnect(self) -> None:
             pass
 
-    monkeypatch.setattr(_MODULE, "APIConnectionManager", lambda _config: FakeManager())
-    monkeypatch.setattr(_MODULE, "DiagnosticBluetoothManager", FakeBluetoothManager)
-    monkeypatch.setattr(_MODULE, "BleakTransport", FakeTransport)
-    monkeypatch.setattr(_MODULE, "SolarFlowClient", FakeClient)
     monkeypatch.setattr(
-        _MODULE,
+        client_diagnostic, "APIConnectionManager", lambda _config: FakeManager()
+    )
+    monkeypatch.setattr(
+        client_diagnostic, "DiagnosticBluetoothManager", FakeBluetoothManager
+    )
+    monkeypatch.setattr(client_diagnostic, "BleakTransport", FakeTransport)
+    monkeypatch.setattr(client_diagnostic, "SolarFlowClient", FakeClient)
+    monkeypatch.setattr(
+        client_diagnostic,
         "find_device",
         lambda *_args, **_kwargs: _async_result(
-            (SimpleNamespace(address="secret-address", name="secret-name"), "secret-id")
+            (stub(address="secret-address", name="secret-name"), "secret-id")
         ),
     )
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", _async_sleep)
+    monkeypatch.setattr(asyncio, "sleep", _async_sleep)
 
-    args = SimpleNamespace(
+    args = stub(
         output=tmp_path / "updates.jsonl",
         proxy="proxy.local",
         noise_psk="secret-psk",
@@ -415,7 +407,7 @@ async def test_run_redacts_summary_state_updates_and_jsonl(
         verbose=True,
         controls=False,
     )
-    await _MODULE.run(args)
+    await client_diagnostic.run(args)
 
     stdout = capsys.readouterr().out
     assert "secret-device" not in stdout
@@ -446,19 +438,19 @@ def test_find_device_warms_up_before_discovery_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[tuple[str, float | None]] = []
-    clock = SimpleNamespace(now=0.0)
+    clock = stub(now=0.0)
 
     async def sleep(seconds: float) -> None:
         events.append(("sleep", seconds))
         clock.now += seconds
 
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", sleep)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
     monkeypatch.setattr(
-        _MODULE.asyncio,
+        asyncio,
         "get_running_loop",
-        lambda: SimpleNamespace(time=lambda: clock.now),
+        lambda: stub(time=lambda: clock.now),
     )
-    manager = SimpleNamespace(
+    manager = stub(
         async_ble_device_from_address=lambda *_args, **_kwargs: events.append(
             ("discover", None)
         ),
@@ -488,7 +480,7 @@ def test_main_reports_client_errors(
         raise TimeoutError("SolarFlow device was not found through the proxy")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(_MODULE, "run", fail)
+    monkeypatch.setattr(client_diagnostic, "run", fail)
 
     result = main(["--proxy", "proxy", "--noise-psk", "psk", "--identifier", "ID"])
 

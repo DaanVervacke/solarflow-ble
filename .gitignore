@@ -12,6 +12,6 @@ coverage.xml
 
 docs/_build/
 
-scripts/test_solarflow_client.local.json
+scripts/client_diagnostic.local.json
 
 *.xapk

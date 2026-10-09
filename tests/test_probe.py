@@ -1,37 +1,27 @@
 import asyncio
 import json
-import sys
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from scripts import probe_solarflow as probe
+from scripts._proxy_common import DiscoveryBluetoothManager as ProbeBluetoothManager
+from scripts._proxy_common import scan_for_target
+from scripts._redact import redact_value
 
-from conftest import FakeBluetoothManager, FakeManager
+from conftest import FakeBluetoothManager, FakeManager, stub
 
-_SPEC = spec_from_file_location(
-    "probe_solarflow", Path(__file__).parent.parent / "scripts" / "probe_solarflow.py"
-)
-assert _SPEC is not None
-assert _SPEC.loader is not None
-_MODULE = module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = _MODULE
-_SPEC.loader.exec_module(_MODULE)
-
-CaptureWriter = _MODULE.CaptureWriter
-CaptureTransport = _MODULE.CaptureTransport
-ProbeConfig = _MODULE.ProbeConfig
-ProbeBluetoothManager = _MODULE.ProbeBluetoothManager
-_advertisement_matches = _MODULE._advertisement_matches
-_find_device = _MODULE._find_device
-_list_advertisements = _MODULE._list_advertisements
-_log_found_target = _MODULE._log_found_target
-_parser = _MODULE._parser
-_run_passive_capture = _MODULE._run_passive_capture
-redact_value = _MODULE.redact_value
-run_probe = _MODULE.run_probe
-main = _MODULE.main
+CaptureWriter = probe.CaptureWriter
+CaptureTransport = probe.CaptureTransport
+ProbeConfig = probe.ProbeConfig
+_advertisement_matches = probe._advertisement_matches
+_find_device = probe._find_device
+_list_advertisements = probe._list_advertisements
+_log_found_target = probe._log_found_target
+_parser = probe._parser
+_run_passive_capture = probe._run_passive_capture
+run_probe = probe.run_probe
+main = probe.main
 
 
 def test_probe_config_normalizes_address() -> None:
@@ -224,7 +214,7 @@ async def test_passive_capture_uses_direct_bleak_without_writes(
 ) -> None:
     class Services:
         def get_characteristic(self, uuid: str) -> Any:
-            return SimpleNamespace(uuid=uuid)
+            return stub(uuid=uuid)
 
     class FakeBleakClient:
         def __init__(self) -> None:
@@ -244,12 +234,12 @@ async def test_passive_capture_uses_direct_bleak_without_writes(
 
     client = FakeBleakClient()
     monkeypatch.setattr(
-        _MODULE,
+        probe,
         "establish_connection",
         lambda *_args, **_kwargs: _async_return(client),
     )
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", _async_noop)
-    device = SimpleNamespace(address="AA:BB", name="SolarFlow")
+    monkeypatch.setattr(asyncio, "sleep", _async_noop)
+    device = stub(address="AA:BB", name="SolarFlow")
     config = _scan_config()
     config.capture_seconds = 0
     capture = CaptureWriter(tmp_path / "passive.jsonl")
@@ -268,7 +258,7 @@ async def test_passive_capture_client_name_follows_identity_setting(
 ) -> None:
     class Services:
         def get_characteristic(self, uuid: str) -> Any:
-            return SimpleNamespace(uuid=uuid)
+            return stub(uuid=uuid)
 
     class FakeBleakClient:
         def __init__(self) -> None:
@@ -292,12 +282,12 @@ async def test_passive_capture_client_name_follows_identity_setting(
         client_names.append(name)
         return client
 
-    monkeypatch.setattr(_MODULE, "establish_connection", establish_connection)
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", _async_noop)
+    monkeypatch.setattr(probe, "establish_connection", establish_connection)
+    monkeypatch.setattr(asyncio, "sleep", _async_noop)
     config = _scan_config()
     config.capture_seconds = 0
     config.show_identities = show_identities
-    device = SimpleNamespace(address="AA:BB", name="SolarFlow")
+    device = stub(address="AA:BB", name="SolarFlow")
 
     await _run_passive_capture(config, device, CaptureWriter(None))
 
@@ -328,18 +318,18 @@ async def test_normal_probe_uses_client_and_logs_summary(
             self.calls.append("disconnect")
 
     client_holder: list[FakeClient] = []
-    monkeypatch.setattr(_MODULE, "APIConnectionManager", lambda _config: FakeManager())
-    monkeypatch.setattr(_MODULE, "ProbeBluetoothManager", FakeBluetoothManager)
-    monkeypatch.setattr(_MODULE, "_find_device", _async_device)
-    monkeypatch.setattr(_MODULE, "BleakTransport", FakeTransport)
+    monkeypatch.setattr(probe, "APIConnectionManager", lambda _config: FakeManager())
+    monkeypatch.setattr(probe, "ProbeBluetoothManager", FakeBluetoothManager)
+    monkeypatch.setattr(probe, "_find_device", _async_device)
+    monkeypatch.setattr(probe, "BleakTransport", FakeTransport)
 
     def make_client(transport: Any) -> FakeClient:
         client = FakeClient(transport)
         client_holder.append(client)
         return client
 
-    monkeypatch.setattr(_MODULE, "SolarFlowClient", make_client)
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", _async_noop)
+    monkeypatch.setattr(probe, "SolarFlowClient", make_client)
+    monkeypatch.setattr(asyncio, "sleep", _async_noop)
     config = _scan_config()
     config.output = tmp_path / "normal.jsonl"
     config.send_handshake = True
@@ -349,7 +339,9 @@ async def test_normal_probe_uses_client_and_logs_summary(
 
     assert len(client_holder) == 1
     assert isinstance(client_holder[0].transport, CaptureTransport)
-    assert client_holder[0].transport._transport.device.address == "AA:BB"
+    underlying = client_holder[0].transport._transport
+    assert isinstance(underlying, FakeTransport)
+    assert underlying.device.address == "AA:BB"
     assert client_holder[0].calls == ["connect", "disconnect"]
     assert "device_id=DEVICE_ID status=ready" in caplog.text
 
@@ -380,17 +372,17 @@ async def test_failed_normal_probe_preserves_capture_and_disconnects(
             self.disconnected = True
 
     clients: list[FailingClient] = []
-    monkeypatch.setattr(_MODULE, "APIConnectionManager", lambda _config: FakeManager())
-    monkeypatch.setattr(_MODULE, "ProbeBluetoothManager", FakeBluetoothManager)
-    monkeypatch.setattr(_MODULE, "_find_device", _async_device)
-    monkeypatch.setattr(_MODULE, "BleakTransport", FakeTransport)
+    monkeypatch.setattr(probe, "APIConnectionManager", lambda _config: FakeManager())
+    monkeypatch.setattr(probe, "ProbeBluetoothManager", FakeBluetoothManager)
+    monkeypatch.setattr(probe, "_find_device", _async_device)
+    monkeypatch.setattr(probe, "BleakTransport", FakeTransport)
 
     def make_client(transport: Any) -> FailingClient:
         client = FailingClient(transport)
         clients.append(client)
         return client
 
-    monkeypatch.setattr(_MODULE, "SolarFlowClient", make_client)
+    monkeypatch.setattr(probe, "SolarFlowClient", make_client)
     config = _scan_config()
     config.output = tmp_path / "failed.jsonl"
     config.send_handshake = True
@@ -413,7 +405,7 @@ async def _async_noop(_seconds: float) -> None:
 
 
 async def _async_device(_config: Any, _manager: Any) -> Any:
-    return SimpleNamespace(address="AA:BB", name="SolarFlow")
+    return stub(address="AA:BB", name="SolarFlow")
 
 
 def test_redact_value_handles_nested_values() -> None:
@@ -457,13 +449,13 @@ async def test_scan_for_target_returns_the_match_callback_result(
     async def sleep(_seconds: float) -> None:
         pass
 
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", sleep)
-    device = SimpleNamespace(address="AA:BB", name="SolarFlow")
-    advertisement = SimpleNamespace(manufacturer_data={0x4F48: b"IDENT\x16"})
-    scanner = SimpleNamespace(
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    device = stub(address="AA:BB", name="SolarFlow")
+    advertisement = stub(manufacturer_data={0x4F48: b"IDENT\x16"})
+    scanner = stub(
         discovered_devices_and_advertisement_data={"device": (device, advertisement)}
     )
-    manager = SimpleNamespace(async_current_scanners=lambda: [scanner])
+    manager = stub(async_current_scanners=lambda: [scanner])
     offered: list[tuple[object, object]] = []
 
     def lookup() -> object:
@@ -473,9 +465,7 @@ async def test_scan_for_target_returns_the_match_callback_result(
         offered.append((found, found_advertisement))
         return found
 
-    result = await _MODULE.scan_for_target(
-        manager, lookup=lookup, match=match, scan_seconds=1
-    )
+    result = await scan_for_target(manager, lookup=lookup, match=match, scan_seconds=1)
 
     assert result is device
     assert offered == [(device, advertisement)]
@@ -485,13 +475,13 @@ def test_find_device_scan_window_excludes_warmup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = FakeClock()
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", clock.sleep)
+    monkeypatch.setattr(asyncio, "sleep", clock.sleep)
     monkeypatch.setattr(
-        _MODULE.asyncio,
+        asyncio,
         "get_running_loop",
-        lambda: SimpleNamespace(time=clock.time),
+        lambda: stub(time=clock.time),
     )
-    manager = SimpleNamespace(
+    manager = stub(
         async_ble_device_from_address=lambda *_args, **_kwargs: None,
         async_discovered_devices=lambda *_args: [],
         async_current_scanners=list,
@@ -508,13 +498,13 @@ def test_list_advertisements_scan_window_excludes_warmup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = FakeClock()
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", clock.sleep)
+    monkeypatch.setattr(asyncio, "sleep", clock.sleep)
     monkeypatch.setattr(
-        _MODULE.asyncio,
+        asyncio,
         "get_running_loop",
-        lambda: SimpleNamespace(time=clock.time),
+        lambda: stub(time=clock.time),
     )
-    manager = SimpleNamespace(async_current_scanners=list)
+    manager = stub(async_current_scanners=list)
 
     asyncio.run(_list_advertisements(_scan_config(), manager))
 
@@ -525,11 +515,11 @@ def test_list_advertisements_scan_window_excludes_warmup(
 def test_list_advertisements_redacts_identity_by_default(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    scanner = SimpleNamespace(
+    scanner = stub(
         discovered_devices_and_advertisement_data={
             "device": (
-                SimpleNamespace(address="AA:BB:CC:DD:EE:FF", name="SolarFlow"),
-                SimpleNamespace(
+                stub(address="AA:BB:CC:DD:EE:FF", name="SolarFlow"),
+                stub(
                     manufacturer_data={0x4F48: b"REAL_IDENTIFIER"},
                     rssi=-42,
                     service_uuids=[],
@@ -539,14 +529,14 @@ def test_list_advertisements_redacts_identity_by_default(
     )
 
     clock = FakeClock()
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", clock.sleep)
+    monkeypatch.setattr(asyncio, "sleep", clock.sleep)
     monkeypatch.setattr(
-        _MODULE.asyncio,
+        asyncio,
         "get_running_loop",
-        lambda: SimpleNamespace(time=clock.time),
+        lambda: stub(time=clock.time),
     )
     config = _scan_config()
-    manager = SimpleNamespace(async_current_scanners=lambda: [scanner])
+    manager = stub(async_current_scanners=lambda: [scanner])
 
     with caplog.at_level("INFO"):
         asyncio.run(_list_advertisements(config, manager))
@@ -559,11 +549,11 @@ def test_list_advertisements_redacts_identity_by_default(
 def test_list_advertisements_shows_identity_when_enabled(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    scanner = SimpleNamespace(
+    scanner = stub(
         discovered_devices_and_advertisement_data={
             "device": (
-                SimpleNamespace(address="AA:BB:CC:DD:EE:FF", name="SolarFlow"),
-                SimpleNamespace(
+                stub(address="AA:BB:CC:DD:EE:FF", name="SolarFlow"),
+                stub(
                     manufacturer_data={0x4F48: b"REAL_IDENTIFIER"},
                     rssi=-42,
                     service_uuids=[],
@@ -573,15 +563,15 @@ def test_list_advertisements_shows_identity_when_enabled(
     )
 
     clock = FakeClock()
-    monkeypatch.setattr(_MODULE.asyncio, "sleep", clock.sleep)
+    monkeypatch.setattr(asyncio, "sleep", clock.sleep)
     monkeypatch.setattr(
-        _MODULE.asyncio,
+        asyncio,
         "get_running_loop",
-        lambda: SimpleNamespace(time=clock.time),
+        lambda: stub(time=clock.time),
     )
     config = _scan_config()
     config.show_identities = True
-    manager = SimpleNamespace(async_current_scanners=lambda: [scanner])
+    manager = stub(async_current_scanners=lambda: [scanner])
 
     with caplog.at_level("INFO"):
         asyncio.run(_list_advertisements(config, manager))
@@ -594,7 +584,7 @@ def test_log_found_target_redacts_name_by_default(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _scan_config()
-    device = SimpleNamespace(address="AA:BB:CC:DD:EE:FF", name="SolarFlow")
+    device = stub(address="AA:BB:CC:DD:EE:FF", name="SolarFlow")
 
     with caplog.at_level("INFO"):
         _log_found_target(config, device)
@@ -610,7 +600,7 @@ def test_log_found_target_shows_identity_when_enabled(
 ) -> None:
     config = _scan_config()
     config.show_identities = True
-    device = SimpleNamespace(address="AA:BB:CC:DD:EE:FF", name="SolarFlow")
+    device = stub(address="AA:BB:CC:DD:EE:FF", name="SolarFlow")
 
     with caplog.at_level("INFO"):
         _log_found_target(config, device, "REAL_IDENTIFIER")
@@ -642,7 +632,7 @@ def test_main_reports_probe_errors(
     async def fail(_config: Any) -> None:
         raise TimeoutError("SolarFlow device was not found through the proxy")
 
-    monkeypatch.setattr(_MODULE, "run_probe", fail)
+    monkeypatch.setattr(probe, "run_probe", fail)
 
     with caplog.at_level("WARNING"):
         result = main(["--proxy", "proxy.local"])
@@ -659,7 +649,7 @@ def test_main_reports_interruption(
     async def interrupt(_config: Any) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(_MODULE, "run_probe", interrupt)
+    monkeypatch.setattr(probe, "run_probe", interrupt)
 
     result = main(["--proxy", "proxy.local"])
 
