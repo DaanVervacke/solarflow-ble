@@ -6,17 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Before 1.0, breaking changes ship as minor bumps.
 
-## [Unreleased]
+## [0.3.0] - 2026-10-10
 
 ### Documentation
 
 - Correct and complete the README against the current API
 - Correct the docstrings and add a guide to the docs home page
+- Align the PR template and contributing guide with the gate
+
+### Features
+
+- Make SolarFlowState.raw read-only and drop its update helpers
 
 ### Maintenance
 
 - Align the changelog tooling with the library family
 - Remove comments and stray punctuation from the repo
+- Gate the release tag and run pre-commit ruff from the lockfile
+- Run the dev scripts as modules and rename the client diagnostic
 
 ## [0.2.3] - 2026-10-02
 
@@ -165,7 +172,8 @@ Before 1.0, breaking changes ship as minor bumps.
 
 - Initial release.
 
-[Unreleased]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.0...v0.2.1
