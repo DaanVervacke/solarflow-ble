@@ -29,13 +29,17 @@ ruff format --check .
 ruff check .
 mypy src tests scripts
 coverage run --branch -m pytest
-coverage report
+coverage report --show-missing
 uv build
-uv audit
+uv audit --locked --preview-features audit-command
 ```
 
 Coverage measures branches in `src/solarflow_ble` and requires 98%. Your
 pull request must pass this gate completely.
+
+CI runs the same gate on Python 3.14 and 3.15 with both the highest and the
+lowest direct dependency versions. A 3.15 failure does not block the merge. It then checks that the wheel ships
+`py.typed` and imports the installed wheel outside the repository.
 
 The API documentation is built separately and is not part of the gate:
 

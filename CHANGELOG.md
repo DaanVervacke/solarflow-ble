@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Before 1.0, breaking changes ship as minor bumps.
 
+## [Unreleased]
+
+### Documentation
+
+- Correct and complete the README against the current API
+- Correct the docstrings and add a guide to the docs home page
+
+### Maintenance
+
+- Align the changelog tooling with the library family
+- Remove comments and stray punctuation from the repo
+
 ## [0.2.3] - 2026-10-02
 
 ### Maintenance
