@@ -2,6 +2,12 @@ name: Gate
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out, defaults to the triggering ref
+        type: string
+        required: false
+        default: ""
 
 jobs:
   gate:
@@ -23,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -36,7 +43,7 @@ jobs:
 
       - name: Sync dependencies
         run: |
-          if [ "${{ matrix.resolution }}" = "lowest-direct" ]; then
+          if [ "${UV_RESOLUTION}" = "lowest-direct" ]; then
             uv lock
           fi
           uv sync --locked --all-groups
@@ -44,9 +51,8 @@ jobs:
       - name: Run check gate
         run: uv run python -m scripts.check
 
-      - name: Build and verify wheel
+      - name: Verify wheel
         run: |
-          uv build
           python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; names = zipfile.ZipFile(w).namelist(); sys.exit(0 if 'solarflow_ble/py.typed' in names else 'py.typed missing from wheel: ' + w)"
           uv venv /tmp/wheel-smoke
           uv pip install --python /tmp/wheel-smoke/bin/python dist/*.whl
