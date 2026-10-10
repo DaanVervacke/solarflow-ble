@@ -661,9 +661,7 @@ class SolarFlowClient:
             SolarFlowCommandError: The device rejected the write.
         """
         limits = self._resolve_limits()
-        self._validate_range(
-            value, limits.min_target_soc, 100, "Maximum SOC", "percent"
-        )
+        self._validate_range(value, limits.min_target_soc, 100, "Target SOC", "percent")
         await self._request_write("socSet", value * 10)
 
     async def set_ac_mode(self, value: AcMode | int) -> None:
