@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Before 1.0, breaking changes ship as minor bumps.
 
+## [0.3.1] - 2026-10-10
+
+### Bug Fixes
+
+- Name the set_soc bound Target SOC in validation errors
+
+### Documentation
+
+- Fix README drift and document the release publish step
+
+### Maintenance
+
+- Rename client test wording and cite methods in fixture metadata
+- Cite client methods in the app contract fixture
+
 ## [0.3.0] - 2026-10-10
 
 ### Documentation
@@ -172,7 +187,8 @@ Before 1.0, breaking changes ship as minor bumps.
 
 - Initial release.
 
-[Unreleased]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.1...v0.2.2
