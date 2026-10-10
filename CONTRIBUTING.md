@@ -68,7 +68,9 @@ and `chore:` subjects. Regenerate the unreleased section with
 release, rename the Unreleased heading to `## [X.Y.Z] - YYYY-MM-DD`, add the
 `[X.Y.Z]:` compare link at the bottom of the file, and point the
 `[Unreleased]:` link at the new tag. Bump the version, commit, and tag
-`vX.Y.Z`.
+`vX.Y.Z`. Publishing a GitHub release for that tag runs the release
+workflow, which reruns the gate on the tag, checks that the tag matches the
+`pyproject.toml` version, and uploads the build to PyPI.
 
 ## Commit style
 

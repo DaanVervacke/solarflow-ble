@@ -126,8 +126,10 @@ session fails:
   waiting for the response timeout
 - `client.status` flips to `ConnectionStatus.DISCONNECTED`
 - an optional `connection_lost_callback` receives the underlying exception
-- `client.last_error` holds a `SolarFlowDeviceError` for the most recent
-  device-reported error (`method == "error"`), if any. `connect()` clears it
+
+Device-reported errors (`method == "error"`) do not fail the session.
+`client.last_error` holds a `SolarFlowDeviceError` for the most recent one,
+if any, and `connect()` clears it.
 
 Messages that are still being processed when the session fails keep flowing
 to `update_callback`, with `update.status` reflecting `DISCONNECTED`. Call
@@ -159,7 +161,9 @@ uv run python -m scripts.probe_solarflow \
   --output /tmp/solarflow.jsonl
 ```
 
-Use `--no-handshake` for passive notification capture. Addresses, identifiers,
+Use `--no-handshake` for passive notification capture. `--scan-seconds`
+(default 30) and `--capture-seconds` (default 15) set the scan and capture
+windows. Addresses, identifiers,
 device IDs, product keys, pack serials, and credentials are redacted from
 capture files. `--show-identities` affects logs only. `--proxy`,
 `--noise-psk`, `--address`, and `--identifier` fall back to the
@@ -170,7 +174,7 @@ The probe uses the same `SolarFlowClient` protocol flow as the library in
 normal mode. Passive mode connects directly to the notification characteristic
 without sending protocol writes.
 
-## Standalone library test
+## Client diagnostic
 
 `scripts/client_diagnostic.py` exercises the library directly. It does not
 use the probe script. The default run is read-only and requires exactly one of
@@ -182,7 +186,7 @@ uv run python -m scripts.client_diagnostic \
   --noise-psk "the-encryption-key-of-your-esphome-bluetooth-proxy" \
   --identifier "DEVICE_IDENTIFIER" \
   --duration 30 \
-  --output /tmp/solarflow-library-test.jsonl
+  --output /tmp/solarflow-client-diagnostic.jsonl
 ```
 
 You can put the connection settings in the ignored file
@@ -202,8 +206,9 @@ Then run:
 uv run python -m scripts.client_diagnostic --duration 30
 ```
 
-The script prints decoded updates to stdout and always redacts optional JSONL
-output. Controls require `--controls`, `--confirm-controls`, and explicit
+The script prints decoded updates to stdout, as full JSON with `--verbose`,
+and always redacts optional JSONL output. `--duration` defaults to 15
+seconds. Controls require `--controls`, `--confirm-controls`, and explicit
 `--min-soc` and `--soc` values. `--input-limit`, `--output-limit`, and
 `--ac-mode` are optional. Use `--config` to read a different JSON file.
 Never commit the local config or a real PSK.
@@ -221,7 +226,7 @@ uv run python -m scripts.check
 Run focused tests:
 
 ```bash
-uv run pytest tests/test_solarflow.py
+uv run pytest tests/test_client_controls.py
 uv run pytest tests/test_client_diagnostic.py
 ```
 
