@@ -498,7 +498,7 @@ async def run(args: argparse.Namespace) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the standalone SolarFlow client test."""
+    """Run the standalone SolarFlow client diagnostic."""
     try:
         args = parse_arguments(argv)
         asyncio.run(run(args))
@@ -506,7 +506,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _stderr("Interrupted")
         return 1
     except Exception as err:  # noqa: BLE001
-        _stderr(f"SolarFlow client test failed: {err}")
+        _stderr(f"SolarFlow client diagnostic failed: {err}")
         return 1
     return 0
 

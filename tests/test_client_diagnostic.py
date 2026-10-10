@@ -486,6 +486,6 @@ def test_main_reports_client_errors(
 
     assert result == 1
     assert (
-        "SolarFlow client test failed: SolarFlow device was not found through "
+        "SolarFlow client diagnostic failed: SolarFlow device was not found through "
         "the proxy" in capsys.readouterr().err
     )
