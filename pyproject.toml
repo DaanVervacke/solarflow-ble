@@ -29,11 +29,11 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.12.21,<0.13"]
+requires = ["uv_build>=0.12.21,<0.14"]
 build-backend = "uv_build"
 
 [tool.uv]
-required-version = ">=0.12.21,<0.13"
+required-version = ">=0.12.21,<0.14"
 environments = ["platform_system != 'Darwin' or platform_machine != 'x86_64'"]
 
 [tool.uv.build-backend]
