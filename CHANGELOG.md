@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Before 1.0, breaking changes ship as minor bumps.
 
+## [0.3.3] - 2026-10-26
+
+### Maintenance
+
+- Refresh lockfile to fix aiohttp and certifi advisories
+
 ## [0.3.2] - 2026-10-10
 
 ### Maintenance
@@ -194,6 +200,7 @@ Before 1.0, breaking changes ship as minor bumps.
 - Initial release.
 
 [Unreleased]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.2...HEAD
+[0.3.3]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/DaanVervacke/solarflow-ble/compare/v0.2.3...v0.3.0
